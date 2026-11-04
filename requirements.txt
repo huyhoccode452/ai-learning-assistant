@@ -1,0 +1,31 @@
+# Direct dependencies, pinned after verifying they resolve and install together
+# (Python 3.12, Windows, `pip check` clean). Transitive deps are resolved by pip.
+
+# LLM + embeddings (new SDK; never the deprecated google-generativeai)
+google-genai==2.34.0
+
+# Vector DB client: keep the minor version aligned with the Qdrant server image
+# (docker-compose.yml uses qdrant/qdrant:v1.19.2)
+qdrant-client==1.19.1
+
+# Config
+pydantic==2.14.2
+pydantic-settings==2.16.2
+python-dotenv==1.2.4
+
+# API
+fastapi==0.162.0
+uvicorn==0.54.0
+python-multipart==0.0.33
+
+# UI
+streamlit==1.66.1
+
+# Document parsing
+# 1.x on purpose: pymupdf 2.x hard-depends on onnxruntime + layout models we do not need
+pymupdf==1.28.2
+python-docx==1.2.0
+
+# Testing / HTTP
+pytest==9.2.0
+requests==2.34.2

@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment / secrets
+.env
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# App data (keep .gitkeep placeholders)
+data/uploads/*
+!data/uploads/.gitkeep
+
+# SQLite
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+
+# Qdrant local storage
+qdrant_storage/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
