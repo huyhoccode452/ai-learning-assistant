@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     gemini_llm_model: str | None = None
     gemini_embedding_model: str | None = None
     embedding_dim: int | None = Field(default=None, gt=0)
+    # Retries per API call on 429 / transient 5xx (0 = never retry).
+    embed_max_retries: int = Field(default=5, ge=0, le=10)
 
     # Qdrant
     qdrant_url: str = "http://localhost:6333"
