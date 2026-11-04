@@ -21,6 +21,10 @@ python-multipart==0.0.33
 # UI
 streamlit==1.66.1
 
+# Text chunking. ONLY the splitter package is allowed (CLAUDE.md: no LangChain in the
+# core pipeline). It pulls in langchain-core and ~13 transitive packages (langsmith, ...).
+langchain-text-splitters==1.1.3
+
 # Document parsing
 # 1.x on purpose: pymupdf 2.x hard-depends on onnxruntime + layout models we do not need
 pymupdf==1.28.2
