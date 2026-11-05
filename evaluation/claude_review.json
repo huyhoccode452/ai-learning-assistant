@@ -1,0 +1,24 @@
+{
+  "reviewer": "Claude (Sonnet 5.5) — một LLM khác họ với judge, không phải con người",
+  "note": "Tôi đọc từng câu trả lời, đối chiếu với đáp án chuẩn trong questions.json và với NỘI DUNG CHUNK thật đã gửi cho LLM (không dùng kiến thức ngoài). Đây là ý kiến thứ hai của một LLM, không phải sự thật tuyệt đối; người dùng nên tự đọc lại các câu ở mục 7.1 và các câu ranh giới.",
+  "verdicts": {
+    "q01": {"correctness": "correct", "faithful": true, "comment": "Đủ 4 giai đoạn, khớp chunk 2."},
+    "q02": {"correctness": "correct", "faithful": true, "comment": "Đủ 3 thuật toán và điều kiện; 'thường là lựa chọn tốt nhất' có trong chunk 4."},
+    "q03": {"correctness": "correct", "faithful": true, "comment": "4MB và phạm vi dùng đúng chunk 12."},
+    "q04": {"correctness": "correct", "faithful": true, "comment": "64MB, VACUUM, CREATE INDEX đúng chunk 12."},
+    "q05": {"correctness": "correct", "faithful": true, "comment": "Đủ 3 chế độ, khớp chunk 13."},
+    "q06": {"correctness": "correct", "faithful": true, "comment": "2.000.050 đúng chunk 16."},
+    "q07": {"correctness": "correct", "faithful": true, "comment": "Khớp chunk 27."},
+    "q08": {"correctness": "correct", "faithful": true, "comment": "Đủ =, <, >, BETWEEN, ORDER BY (chunk 5)."},
+    "q09": {"correctness": "correct", "faithful": true, "comment": "Có cả công thức max_connections x work_mem x số thao tác (chunk 12)."},
+    "q10": {"correctness": "correct", "faithful": true, "comment": "'Multi-Version Concurrency Control', 'dead tuple', 'bloat' đều có nguyên văn trong chunk 15."},
+    "q11": {"correctness": "correct", "faithful": true, "borderline": true, "comment": "Đủ nguyên nhân, cách khắc phục và 3 cái giá (6 phút, 1,4GB, INSERT chậm 4%) đúng chunk 27, nhưng bỏ số p95 giảm từ 2,8 s còn 12 ms vốn nằm trong mệnh đề 'khắc phục' của đáp án chuẩn. Câu hỏi không hỏi kết quả đo nên tôi chấm đúng; theo tiêu chí 'mọi ý chính' nghiêm ngặt thì có thể là một phần."},
+    "q12": {"correctness": "partially_correct", "faithful": true, "comment": "Thiếu replication slot dù chunk 24 (nguồn [5]) đã nằm trong prompt; các ý còn lại đúng."},
+    "q13": {"correctness": "partially_correct", "faithful": true, "comment": "Chỉ liệt kê 6 ý (tách 'khác kiểu dữ liệu' thành ý riêng), thiếu 'thống kê lỗi thời' và 'transaction mở quá lâu' vì chunk 10 không được gửi (điểm 0.6437 < ngưỡng 0.65). Các ý đã nêu đều có trong chunk."},
+    "q14": {"correctness": "correct", "faithful": true, "comment": "Ba kiểu; 'Từ PostgreSQL 10' có trong chunk 19."},
+    "q15": {"correctness": "partially_correct", "faithful": true, "comment": "Có transaction dài/idle in transaction và replication slot (chunk 10, 17), thiếu hot_standby_feedback vì chunk 23 không được truy xuất (hạng 11)."},
+    "q16": {"correctness": "correct", "faithful": true, "comment": "Từ chối đúng, không bịa."},
+    "q17": {"correctness": "correct", "faithful": true, "comment": "Từ chối đúng; phần nói về phân vùng khớp chunk 19."},
+    "q18": {"correctness": "correct", "faithful": true, "comment": "Từ chối đúng; mô tả phạm vi tài liệu khớp chunk 0."}
+  }
+}

@@ -31,6 +31,7 @@ Query: question -> embed query -> top-k search (filtered by document/collection)
 - API: `uvicorn app.main:app --reload`
 - UI: `streamlit run frontend/streamlit_app.py`
 - Tests: `pytest -q`
+- Evaluation (real API calls, cached in `evaluation/cache/`): `python evaluation/evaluate.py` (`--skip-llm` retrieval only, `--report-only` rebuild the report)
 
 ## Priorities
 P0: ingestion, embedding, retrieval, RAG chat, citations.

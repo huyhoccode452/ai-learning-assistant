@@ -3,11 +3,11 @@
 Issues we are aware of and have deliberately not fixed yet. Each entry says what we
 verified, what we did not, and when to revisit. Update the status when one is resolved.
 
-Last updated after `app/db.py` and `app/main.py` (285 tests + 3 integration tests).
+Last updated after `evaluation/evaluate.py` and the first real evaluation run (392 tests + 3 integration tests).
 
 | ID | Area | Issue | Status |
 |----|------|-------|--------|
-| KI-01 | ingestion | Repeated page headers/footers are indexed | Deferred until evaluation data exists |
+| KI-01 | ingestion | Repeated page headers/footers are indexed | Open; evaluation shows no harm but did not isolate it |
 | KI-02 | ingestion | A heading can end a chunk, away from its body | Open |
 | KI-03 | ingestion | PDF line structure (lists, tables) is flattened | Open, by design |
 | KI-04 | ingestion | Partially scanned PDFs are accepted | Open |
@@ -20,10 +20,10 @@ Last updated after `app/db.py` and `app/main.py` (285 tests + 3 integration test
 | KI-11 | dependencies | `langchain-text-splitters` footprint and a known upstream bug | Decided: keep |
 | KI-12 | embeddings | Free-tier throughput is ~100 texts per 70-85 s; embedding blocks | Handled in `main.py` (background job); throughput limit remains |
 | KI-13 | vectorstore | `index_document` is delete-then-upsert, not atomic | Open, by design |
-| KI-14 | retrieval | Cover/TOC chunks are retrieved as noise | Open, revisit with evaluation data |
+| KI-14 | retrieval | Cover/TOC chunks are retrieved as noise | Open; measured: in 9 of 18 prompts, top-1 for 2 absent-topic questions |
 | KI-15 | vectorstore | `list_documents` makes one extra request per document | Open |
 | KI-16 | embeddings | Token-limit pre-check rests on an assumption for short texts | Open |
-| KI-17 | rag | `SCORE_THRESHOLD` is provisional; related-but-absent queries overlap the answerable range | Open, re-tune with the evaluation set |
+| KI-17 | rag | `SCORE_THRESHOLD` is provisional; related-but-absent queries overlap the answerable range | Open; evaluation confirms the overlap, 0.65 kept |
 | KI-18 | llm | Free-tier LLM: daily quota, 503s, slow tail; `timeout_s` is not a hard total limit | Open |
 | KI-19 | rag | Prompt-injection defence lowers the risk but is not a guarantee | Open, by design |
 | KI-20 | rag | Citation checking proves the number exists, not that the chunk supports the sentence | Open |
@@ -32,6 +32,7 @@ Last updated after `app/db.py` and `app/main.py` (285 tests + 3 integration test
 | KI-23 | api | No authentication or per-user data separation | Open, by design |
 | KI-24 | api | Thread-pool starvation, blocked chat during long LLM calls | Open |
 | KI-25 | api | Small consistency gaps (ready but vectors missing, same bytes with another name) | Open |
+| KI-26 | evaluation | Page-level labels hide chunk-level misses; tiny set; threshold tuned and tested on the same questions | Open |
 
 ## KI-01: Repeated headers/footers are indexed
 
@@ -43,6 +44,9 @@ Last updated after `app/db.py` and `app/main.py` (285 tests + 3 integration test
   matters, so the change is justified by numbers.
 - **Idea if needed:** drop lines that repeat on most pages. Run the evaluation before and after
   and report both results in `evaluation/report.md`.
+- **Evaluation update (2026-11-05):** on 15 answerable questions Hit@5 = 1.000 and MRR = 1.000 with the footers still in
+  the chunks, so there is no sign of harm. The before/after experiment above was NOT run, so this does not prove the
+  footers are harmless. Keep deferred.
 
 ## KI-02: Heading separated from its body
 
@@ -169,6 +173,12 @@ filename. Fine for tens of documents; store the filename in SQLite (`db.py`) if 
 per token (at most 2000 tokens). Typical Vietnamese text is about 4 characters per token (measured on
 one repeated phrase only); text full of emoji or rare scripts was not tested.
 
+(KI-14 evaluation update, 2026-11-05: 9 of the 18 prompts sent to the LLM contained a page-1 cover/TOC chunk (q01, q05, q10,
+q11, q12, q13, q16, q17, q18). The TOC chunk was top-1 for the two absent-topic questions q17 (sharding, 0.7174) and q18
+(MySQL, 0.7123). In q13 it passed the threshold (0.6577) while the chunk with two of the seven answers (0.6437) did not.
+Answers stayed faithful; the cost is wasted context and a noisier top-1. Dropping chunks 0 and 1 would NOT separate the
+classes (see KI-17).)
+
 (KI-14 addendum, measured with `scripts/try_rag.py`, threshold 0.65: the table-of-contents chunk
 scored 0.652 and 0.659 for two answerable questions, so it passed the threshold and was sent to the
 LLM as uncited noise. It did no visible harm in 10 questions.)
@@ -191,6 +201,14 @@ LLM as uncited noise. It did no visible harm in 10 questions.)
 - The sample is one 9-page document and the groups have 2-3 queries each. **Do not trust 0.65 yet.**
   Re-tune with the evaluation set. Idea to test then: two numbers, a *gate* on the best score
   (answer at all?) and a lower *include* cut-off for which chunks go into the prompt.
+- **Evaluation update (2026-11-05, 20 questions, same document, `evaluation/report.md` section 4):** top-1 of the 15
+  answerable questions ranges 0.680-0.836; of the 5 that should fall back, 0.481-0.717 (q16 0.6701, q17 0.7174, q18 0.7123,
+  q19 0.5427, q20 0.4814). The classes **overlap** by 0.037 (q17 above q11). At 0.65: 0 answerable blocked, 3 of 5 fall-back
+  questions pass the gate, and the LLM refused all 3 correctly. The grid optimum 0.68 is a single point and q11 clears it by
+  0.0003, so it was NOT adopted. The same topic worded differently moved `pg_upgrade` from 0.6493 to 0.6701, across the
+  threshold. Dropping the cover/TOC chunks would not remove the overlap (q17 stays at 0.7144). Measurement only: the
+  two-threshold idea showed no page-level gain (recall 0.978 unchanged, more chunks, lower precision); a chunk-level label set
+  is needed to judge it (q13 suggests a gain there).
 
 ## KI-18: Free-tier LLM behaviour
 
@@ -207,6 +225,10 @@ LLM as uncited noise. It did no visible harm in 10 questions.)
   the whole call) and sends `X-Server-Timeout`. In `try_rag.py` one question took 87 s: a first attempt of
   roughly 84 s ended in 504 DEADLINE_EXCEEDED, then the retry succeeded in ~1.3 s. Cause not investigated
   further. A real wall-clock cap would need a thread/async wrapper.
+- **Evaluation update (2026-11-05, `gemini-3.1-flash-lite`, `minimal`, 18 LLM calls):** median `llm_ms` 1.23 s, but 2 of 18 took
+  longer than 10 s: q04 61.8 s (one retry after `HTTP 500`; the first attempt ran about the 60 s `timeout_s`, inferred) and q09
+  13.2 s with no retry. `gemini-3.5-flash` was out of daily quota during that run (429 asking to wait 14991 s), so its
+  answer quality was not measured.
 - 504 is retried like 429/5xx by design (same policy as embeddings); with 5 retries the worst case is
   minutes. Consider `EMBED_MAX_RETRIES` lower for interactive use or a separate LLM retry setting.
 
@@ -269,3 +291,19 @@ the design. Mitigations if needed: lower retries for chat, a semaphore for index
   render needs internet. Only the HTML and `/openapi.json` were checked, not a browser render.
 - A request body that is not valid UTF-8 (some Windows shells send cp1252 for Vietnamese text via curl) gets
   `400 bad_request`; found on the real server and covered by a test.
+
+## KI-26: Limits of the evaluation itself
+
+- **Page-level labels hide chunk-level misses.** q13 needs three chunks of page 4 but only two reached the prompt (the third scored
+  0.6437 < 0.65); Recall@5 at page level is still 1.0. Label the evidence chunks to see this.
+- **Small and single-document:** 20 questions (15 answerable), one 9-page PDF. One question moves a rate by 5-7 points; there are no
+  meaningful confidence intervals.
+- **The threshold is judged on the questions it was tuned with.** Four questions (q05, q16, q17, q19) also served to pick 0.65.
+  Use a dev set for tuning and a separate test set for reporting.
+- **The LLM judge is imperfect and here shared the model with the answerer** (`gemini-3.1-flash-lite`). A second opinion (Claude)
+  agreed on all 18 verdicts and flagged one borderline (q11); two LLMs agreeing is not ground truth. A human should re-read the
+  5 random verdicts printed by the script and the borderline case.
+- **Not measured:** `gemini-3.5-flash` answers (daily quota), documents longer than 9 pages, DOCX/TXT (no page numbers), more than
+  one document, the effect of the repeated footers (KI-01) in isolation.
+- The cached run in `evaluation/cache/` is what makes the numbers reproducible; without it, LLM answers can differ slightly
+  (temperature 0.2).

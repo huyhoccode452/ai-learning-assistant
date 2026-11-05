@@ -1,0 +1,1865 @@
+{
+  "meta": {
+    "date": "2026-11-05",
+    "document": "postgresql_performance_guide_vi.pdf",
+    "doc_id": "5d7d32354f75f17b",
+    "num_pages": 9,
+    "num_chunks": 29,
+    "chunk_size": 800,
+    "chunk_overlap": 120,
+    "top_k": 5,
+    "ks": [
+      3,
+      5
+    ],
+    "score_threshold": 0.65,
+    "embedding_model": "gemini-embedding-001",
+    "embedding_dim": 768,
+    "llm_model": "gemini-3.1-flash-lite",
+    "llm_thinking": "minimal",
+    "env_llm_model": "gemini-3.5-flash",
+    "env_llm_thinking": "minimal",
+    "judge_model": "gemini-3.1-flash-lite",
+    "judge_thinking": "low",
+    "seed": 20261105,
+    "sample_ids": [
+      "q04",
+      "q05",
+      "q07",
+      "q10",
+      "q18"
+    ],
+    "stages": [
+      "retrieval",
+      "end_to_end",
+      "judge"
+    ]
+  },
+  "chunks_per_page": {
+    "1": 2,
+    "2": 3,
+    "3": 3,
+    "4": 3,
+    "5": 4,
+    "6": 4,
+    "7": 3,
+    "8": 4,
+    "9": 3
+  },
+  "questions": [
+    {
+      "id": "q01",
+      "type": "single",
+      "question": "Khi nhận một câu lệnh SQL, PostgreSQL thực hiện những giai đoạn nào?",
+      "reference_answer": "Bốn giai đoạn: phân tích cú pháp (parser), viết lại (rewriter), lập kế hoạch (planner) và thực thi (executor).",
+      "relevant_pages": [
+        2
+      ],
+      "expect_fallback": false,
+      "hits": [
+        {
+          "score": 0.7936905,
+          "page": 2,
+          "chunk_index": 2
+        },
+        {
+          "score": 0.7026534,
+          "page": 1,
+          "chunk_index": 1
+        },
+        {
+          "score": 0.67708474,
+          "page": 9,
+          "chunk_index": 28
+        },
+        {
+          "score": 0.67446053,
+          "page": 2,
+          "chunk_index": 3
+        },
+        {
+          "score": 0.6645719,
+          "page": 9,
+          "chunk_index": 26
+        }
+      ],
+      "retrieval_error": null,
+      "e2e": {
+        "answer": "Khi nhận một câu lệnh SQL, PostgreSQL thực hiện qua bốn giai đoạn: phân tích cú pháp (parser), viết lại (rewriter), lập kế hoạch (planner) và thực thi (executor) [1].",
+        "used_fallback": false,
+        "best_score": 0.7936905,
+        "sources": [
+          {
+            "number": 1,
+            "page": 2,
+            "chunk_index": 2,
+            "score": 0.7936905,
+            "cited": true
+          },
+          {
+            "number": 2,
+            "page": 1,
+            "chunk_index": 1,
+            "score": 0.7026534,
+            "cited": false
+          },
+          {
+            "number": 3,
+            "page": 9,
+            "chunk_index": 28,
+            "score": 0.67708474,
+            "cited": false
+          },
+          {
+            "number": 4,
+            "page": 2,
+            "chunk_index": 3,
+            "score": 0.67446053,
+            "cited": false
+          },
+          {
+            "number": 5,
+            "page": 9,
+            "chunk_index": 26,
+            "score": 0.6645719,
+            "cited": false
+          }
+        ],
+        "latency": {
+          "embed_ms": 428.950999994413,
+          "search_ms": 10.118799997144379,
+          "llm_ms": 1095.1179999974556,
+          "total_ms": 1534.5136999967508
+        },
+        "retries": 0,
+        "invalid_citations": [],
+        "truncated": false,
+        "from_cache": true
+      },
+      "e2e_error": null,
+      "judge": {
+        "correctness": "correct",
+        "is_refusal": false,
+        "faithful": true,
+        "unsupported_claims": [],
+        "notes": "The system answer correctly identifies all four stages mentioned in the reference answer.",
+        "from_cache": true
+      },
+      "judge_error": null,
+      "outcome": "correct"
+    },
+    {
+      "id": "q02",
+      "type": "single",
+      "question": "Với phép JOIN, planner chọn giữa những thuật toán nào và mỗi thuật toán phù hợp khi nào?",
+      "reference_answer": "Ba thuật toán: Nested Loop (một bên rất nhỏ, bên kia có chỉ mục), Hash Join (tập dữ liệu lớn chưa sắp xếp), Merge Join (hai bên đã sắp xếp theo khóa nối).",
+      "relevant_pages": [
+        2
+      ],
+      "expect_fallback": false,
+      "hits": [
+        {
+          "score": 0.80333817,
+          "page": 2,
+          "chunk_index": 4
+        },
+        {
+          "score": 0.6528485,
+          "page": 2,
+          "chunk_index": 2
+        },
+        {
+          "score": 0.65115076,
+          "page": 2,
+          "chunk_index": 3
+        },
+        {
+          "score": 0.63409114,
+          "page": 1,
+          "chunk_index": 1
+        },
+        {
+          "score": 0.63220096,
+          "page": 1,
+          "chunk_index": 0
+        }
+      ],
+      "retrieval_error": null,
+      "e2e": {
+        "answer": "Với phép JOIN, PostgreSQL planner chọn giữa ba thuật toán sau:\n\n*   **Nested Loop:** Phù hợp khi một bên dữ liệu rất nhỏ và bên còn lại có chỉ mục [1].\n*   **Hash Join:** Thường là lựa chọn tốt nhất cho các tập dữ liệu lớn chưa được sắp xếp [1].\n*   **Merge Join:** Phù hợp khi cả hai bên dữ liệu đã được sắp xếp theo khóa nối [1].",
+        "used_fallback": false,
+        "best_score": 0.80333817,
+        "sources": [
+          {
+            "number": 1,
+            "page": 2,
+            "chunk_index": 4,
+            "score": 0.80333817,
+            "cited": true
+          },
+          {
+            "number": 2,
+            "page": 2,
+            "chunk_index": 2,
+            "score": 0.6528485,
+            "cited": false
+          },
+          {
+            "number": 3,
+            "page": 2,
+            "chunk_index": 3,
+            "score": 0.65115076,
+            "cited": false
+          }
+        ],
+        "latency": {
+          "embed_ms": 354.77330000139773,
+          "search_ms": 24.97699999366887,
+          "llm_ms": 1129.3852999951923,
+          "total_ms": 1509.309500004747
+        },
+        "retries": 0,
+        "invalid_citations": [],
+        "truncated": false,
+        "from_cache": true
+      },
+      "e2e_error": null,
+      "judge": {
+        "correctness": "correct",
+        "is_refusal": false,
+        "faithful": true,
+        "unsupported_claims": [],
+        "notes": "The system answer correctly identifies all three algorithms (Nested Loop, Hash Join, Merge Join) and their respective conditions as specified in the reference answer.",
+        "from_cache": true
+      },
+      "judge_error": null,
+      "outcome": "correct"
+    },
+    {
+      "id": "q03",
+      "type": "single",
+      "question": "work_mem mặc định là bao nhiêu và dùng cho thao tác nào?",
+      "reference_answer": "Mặc định 4MB; là bộ nhớ cho mỗi thao tác sắp xếp hoặc băm bên trong một truy vấn.",
+      "relevant_pages": [
+        5
+      ],
+      "expect_fallback": false,
+      "hits": [
+        {
+          "score": 0.8362583,
+          "page": 5,
+          "chunk_index": 12
+        },
+        {
+          "score": 0.7328163,
+          "page": 5,
+          "chunk_index": 14
+        },
+        {
+          "score": 0.71542823,
+          "page": 5,
+          "chunk_index": 11
+        },
+        {
+          "score": 0.66682386,
+          "page": 9,
+          "chunk_index": 28
+        },
+        {
+          "score": 0.65181303,
+          "page": 5,
+          "chunk_index": 13
+        }
+      ],
+      "retrieval_error": null,
+      "e2e": {
+        "answer": "`work_mem` mặc định là 4MB [1]. Đây là bộ nhớ được sử dụng cho mỗi thao tác sắp xếp hoặc băm bên trong một truy vấn [1].",
+        "used_fallback": false,
+        "best_score": 0.8362583,
+        "sources": [
+          {
+            "number": 1,
+            "page": 5,
+            "chunk_index": 12,
+            "score": 0.8362583,
+            "cited": true
+          },
+          {
+            "number": 2,
+            "page": 5,
+            "chunk_index": 14,
+            "score": 0.7328163,
+            "cited": false
+          },
+          {
+            "number": 3,
+            "page": 5,
+            "chunk_index": 11,
+            "score": 0.71542823,
+            "cited": false
+          },
+          {
+            "number": 4,
+            "page": 9,
+            "chunk_index": 28,
+            "score": 0.66682386,
+            "cited": false
+          },
+          {
+            "number": 5,
+            "page": 5,
+            "chunk_index": 13,
+            "score": 0.65181303,
+            "cited": false
+          }
+        ],
+        "latency": {
+          "embed_ms": 339.01110000442713,
+          "search_ms": 16.178099991520867,
+          "llm_ms": 1786.9465999974636,
+          "total_ms": 2142.383800004609
+        },
+        "retries": 0,
+        "invalid_citations": [],
+        "truncated": false,
+        "from_cache": true
+      },
+      "e2e_error": null,
+      "judge": {
+        "correctness": "correct",
+        "is_refusal": false,
+        "faithful": true,
+        "unsupported_claims": [],
+        "notes": "The system answer correctly identifies the default value (4MB) and the usage (memory for sort or hash operations within a query), matching the reference answer perfectly.",
+        "from_cache": true
+      },
+      "judge_error": null,
+      "outcome": "correct"
+    },
+    {
+      "id": "q04",
+      "type": "single",
+      "question": "maintenance_work_mem mặc định là bao nhiêu và dùng cho tác vụ nào?",
+      "reference_answer": "Mặc định 64MB; dùng cho các tác vụ bảo trì như VACUUM và CREATE INDEX.",
+      "relevant_pages": [
+        5
+      ],
+      "expect_fallback": false,
+      "hits": [
+        {
+          "score": 0.82971334,
+          "page": 5,
+          "chunk_index": 12
+        },
+        {
+          "score": 0.73462534,
+          "page": 5,
+          "chunk_index": 14
+        },
+        {
+          "score": 0.7060914,
+          "page": 5,
+          "chunk_index": 11
+        },
+        {
+          "score": 0.659509,
+          "page": 6,
+          "chunk_index": 17
+        },
+        {
+          "score": 0.65570706,
+          "page": 6,
+          "chunk_index": 16
+        }
+      ],
+      "retrieval_error": null,
+      "e2e": {
+        "answer": "`maintenance_work_mem` có giá trị mặc định là 64MB và được sử dụng cho các tác vụ bảo trì như VACUUM và CREATE INDEX [1].",
+        "used_fallback": false,
+        "best_score": 0.82971334,
+        "sources": [
+          {
+            "number": 1,
+            "page": 5,
+            "chunk_index": 12,
+            "score": 0.82971334,
+            "cited": true
+          },
+          {
+            "number": 2,
+            "page": 5,
+            "chunk_index": 14,
+            "score": 0.73462534,
+            "cited": false
+          },
+          {
+            "number": 3,
+            "page": 5,
+            "chunk_index": 11,
+            "score": 0.7060914,
+            "cited": false
+          },
+          {
+            "number": 4,
+            "page": 6,
+            "chunk_index": 17,
+            "score": 0.659509,
+            "cited": false
+          },
+          {
+            "number": 5,
+            "page": 6,
+            "chunk_index": 16,
+            "score": 0.65570706,
+            "cited": false
+          }
+        ],
+        "latency": {
+          "embed_ms": 366.5197999944212,
+          "search_ms": 9.28589999966789,
+          "llm_ms": 61779.88899999764,
+          "total_ms": 62156.71599999769
+        },
+        "retries": 1,
+        "invalid_citations": [],
+        "truncated": false,
+        "from_cache": true
+      },
+      "e2e_error": null,
+      "judge": {
+        "correctness": "correct",
+        "is_refusal": false,
+        "faithful": true,
+        "unsupported_claims": [],
+        "notes": "The system answer correctly identifies the default value (64MB) and the usage (maintenance tasks like VACUUM and CREATE INDEX) as stated in the reference.",
+        "from_cache": true
+      },
+      "judge_error": null,
+      "outcome": "correct"
+    },
+    {
+      "id": "q05",
+      "type": "single",
+      "question": "PgBouncer có những chế độ pooling nào?",
+      "reference_answer": "Ba chế độ: session pooling, transaction pooling và statement pooling.",
+      "relevant_pages": [
+        5
+      ],
+      "expect_fallback": false,
+      "hits": [
+        {
+          "score": 0.75154483,
+          "page": 5,
+          "chunk_index": 13
+        },
+        {
+          "score": 0.7030126,
+          "page": 5,
+          "chunk_index": 14
+        },
+        {
+          "score": 0.6756188,
+          "page": 5,
+          "chunk_index": 11
+        },
+        {
+          "score": 0.65200484,
+          "page": 1,
+          "chunk_index": 1
+        },
+        {
+          "score": 0.64213675,
+          "page": 8,
+          "chunk_index": 23
+        }
+      ],
+      "retrieval_error": null,
+      "e2e": {
+        "answer": "PgBouncer có ba chế độ pooling: session pooling, transaction pooling và statement pooling [1].",
+        "used_fallback": false,
+        "best_score": 0.75154483,
+        "sources": [
+          {
+            "number": 1,
+            "page": 5,
+            "chunk_index": 13,
+            "score": 0.75154483,
+            "cited": true
+          },
+          {
+            "number": 2,
+            "page": 5,
+            "chunk_index": 14,
+            "score": 0.7030126,
+            "cited": false
+          },
+          {
+            "number": 3,
+            "page": 5,
+            "chunk_index": 11,
+            "score": 0.6756188,
+            "cited": false
+          },
+          {
+            "number": 4,
+            "page": 1,
+            "chunk_index": 1,
+            "score": 0.65200484,
+            "cited": false
+          }
+        ],
+        "latency": {
+          "embed_ms": 435.13509999320377,
+          "search_ms": 58.67900000885129,
+          "llm_ms": 1042.2268999973312,
+          "total_ms": 1536.4746999985073
+        },
+        "retries": 0,
+        "invalid_citations": [],
+        "truncated": false,
+        "from_cache": true
+      },
+      "e2e_error": null,
+      "judge": {
+        "correctness": "correct",
+        "is_refusal": false,
+        "faithful": true,
+        "unsupported_claims": [],
+        "notes": "The system answer correctly identifies all three pooling modes mentioned in the reference answer.",
+        "from_cache": true
+      },
+      "judge_error": null,
+      "outcome": "correct"
+    },
+    {
+      "id": "q06",
+      "type": "single",
+      "question": "Với cấu hình mặc định, bảng 10 triệu dòng chỉ được autovacuum dọn khi có khoảng bao nhiêu dòng chết?",
+      "reference_answer": "Khoảng 2.000.050 dòng chết (ngưỡng = 50 + 0,2 × số dòng của bảng).",
+      "relevant_pages": [
+        6
+      ],
+      "expect_fallback": false,
+      "hits": [
+        {
+          "score": 0.8247073,
+          "page": 6,
+          "chunk_index": 16
+        },
+        {
+          "score": 0.76799536,
+          "page": 6,
+          "chunk_index": 18
+        },
+        {
+          "score": 0.70757437,
+          "page": 4,
+          "chunk_index": 10
+        },
+        {
+          "score": 0.7050952,
+          "page": 6,
+          "chunk_index": 15
+        },
+        {
+          "score": 0.7034307,
+          "page": 6,
+          "chunk_index": 17
+        }
+      ],
+      "retrieval_error": null,
+      "e2e": {
+        "answer": "Với cấu hình mặc định, bảng 10 triệu dòng sẽ được autovacuum dọn khi có khoảng 2.000.050 dòng chết [1].",
+        "used_fallback": false,
+        "best_score": 0.8247073,
+        "sources": [
+          {
+            "number": 1,
+            "page": 6,
+            "chunk_index": 16,
+            "score": 0.8247073,
+            "cited": true
+          },
+          {
+            "number": 2,
+            "page": 6,
+            "chunk_index": 18,
+            "score": 0.76799536,
+            "cited": false
+          },
+          {
+            "number": 3,
+            "page": 4,
+            "chunk_index": 10,
+            "score": 0.70757437,
+            "cited": false
+          },
+          {
+            "number": 4,
+            "page": 6,
+            "chunk_index": 15,
+            "score": 0.7050952,
+            "cited": false
+          },
+          {
+            "number": 5,
+            "page": 6,
+            "chunk_index": 17,
+            "score": 0.7034307,
+            "cited": false
+          }
+        ],
+        "latency": {
+          "embed_ms": 326.7212000064319,
+          "search_ms": 37.75369998766109,
+          "llm_ms": 953.6580000130925,
+          "total_ms": 1318.3016999973916
+        },
+        "retries": 0,
+        "invalid_citations": [],
+        "truncated": false,
+        "from_cache": true
+      },
+      "e2e_error": null,
+      "judge": {
+        "correctness": "correct",
+        "is_refusal": false,
+        "faithful": true,
+        "unsupported_claims": [],
+        "notes": "The system answer correctly identifies the number of dead rows (2,000,050) as stated in the reference answer and supported by the retrieved chunks.",
+        "from_cache": true
+      },
+      "judge_error": null,
+      "outcome": "correct"
+    },
+    {
+      "id": "q07",
+      "type": "single",
+      "question": "View pg_stat_activity dùng để làm gì?",
+      "reference_answer": "Cho biết các truy vấn đang chạy và các phiên 'idle in transaction'.",
+      "relevant_pages": [
+        9
+      ],
+      "expect_fallback": false,
+      "hits": [
+        {
+          "score": 0.7589077,
+          "page": 9,
+          "chunk_index": 27
+        },
+        {
+          "score": 0.70733154,
+          "page": 9,
+          "chunk_index": 26
+        },
+        {
+          "score": 0.6949916,
+          "page": 6,
+          "chunk_index": 18
+        },
+        {
+          "score": 0.6729373,
+          "page": 4,
+          "chunk_index": 10
+        },
+        {
+          "score": 0.6495742,
+          "page": 1,
+          "chunk_index": 1
+        }
+      ],
+      "retrieval_error": null,
+      "e2e": {
+        "answer": "View `pg_stat_activity` được dùng để cho biết các truy vấn đang chạy và các phiên ở trạng thái 'idle in transaction' [1].",
+        "used_fallback": false,
+        "best_score": 0.7589077,
+        "sources": [
+          {
+            "number": 1,
+            "page": 9,
+            "chunk_index": 27,
+            "score": 0.7589077,
+            "cited": true
+          },
+          {
+            "number": 2,
+            "page": 9,
+            "chunk_index": 26,
+            "score": 0.70733154,
+            "cited": false
+          },
+          {
+            "number": 3,
+            "page": 6,
+            "chunk_index": 18,
+            "score": 0.6949916,
+            "cited": false
+          },
+          {
+            "number": 4,
+            "page": 4,
+            "chunk_index": 10,
+            "score": 0.6729373,
+            "cited": false
+          }
+        ],
+        "latency": {
+          "embed_ms": 332.0084000006318,
+          "search_ms": 34.61940000124741,
+          "llm_ms": 1819.8627999954624,
+          "total_ms": 2186.628600000404
+        },
+        "retries": 0,
+        "invalid_citations": [],
+        "truncated": false,
+        "from_cache": true
+      },
+      "e2e_error": null,
+      "judge": {
+        "correctness": "correct",
+        "is_refusal": false,
+        "faithful": true,
+        "unsupported_claims": [],
+        "notes": "The system answer accurately reflects the information provided in the reference answer and the retrieved chunks.",
+        "from_cache": true
+      },
+      "judge_error": null,
+      "outcome": "correct"
+    },
+    {
+      "id": "q08",
+      "type": "single",
+      "question": "Chỉ mục B-tree phù hợp với những loại truy vấn nào?",
+      "reference_answer": "Phù hợp cho các phép so sánh =, <, >, BETWEEN và cho ORDER BY.",
+      "relevant_pages": [
+        3
+      ],
+      "expect_fallback": false,
+      "hits": [
+        {
+          "score": 0.7027536,
+          "page": 3,
+          "chunk_index": 5
+        },
+        {
+          "score": 0.66795266,
+          "page": 4,
+          "chunk_index": 8
+        },
+        {
+          "score": 0.6568675,
+          "page": 3,
+          "chunk_index": 6
+        },
+        {
+          "score": 0.65121573,
+          "page": 4,
+          "chunk_index": 9
+        },
+        {
+          "score": 0.64992654,
+          "page": 3,
+          "chunk_index": 7
+        }
+      ],
+      "retrieval_error": null,
+      "e2e": {
+        "answer": "Chỉ mục B-tree phù hợp cho các phép so sánh `=`, `<`, `>`, `BETWEEN` và cho các truy vấn sử dụng `ORDER BY` [1].",
+        "used_fallback": false,
+        "best_score": 0.7027536,
+        "sources": [
+          {
+            "number": 1,
+            "page": 3,
+            "chunk_index": 5,
+            "score": 0.7027536,
+            "cited": true
+          },
+          {
+            "number": 2,
+            "page": 4,
+            "chunk_index": 8,
+            "score": 0.66795266,
+            "cited": false
+          },
+          {
+            "number": 3,
+            "page": 3,
+            "chunk_index": 6,
+            "score": 0.6568675,
+            "cited": false
+          },
+          {
+            "number": 4,
+            "page": 4,
+            "chunk_index": 9,
+            "score": 0.65121573,
+            "cited": false
+          }
+        ],
+        "latency": {
+          "embed_ms": 322.2609999938868,
+          "search_ms": 26.798100006999448,
+          "llm_ms": 1234.0932000079192,
+          "total_ms": 1583.3061000012094
+        },
+        "retries": 0,
+        "invalid_citations": [],
+        "truncated": false,
+        "from_cache": true
+      },
+      "e2e_error": null,
+      "judge": {
+        "correctness": "correct",
+        "is_refusal": false,
+        "faithful": true,
+        "unsupported_claims": [],
+        "notes": "The system answer correctly identifies all the query types mentioned in the reference answer.",
+        "from_cache": true
+      },
+      "judge_error": null,
+      "outcome": "correct"
+    },
+    {
+      "id": "q09",
+      "type": "single",
+      "question": "Vì sao không nên đặt work_mem quá cao trên toàn hệ thống?",
+      "reference_answer": "Một truy vấn có thể dùng work_mem nhiều lần và mỗi kết nối đều có thể làm vậy, nên tổng bộ nhớ tiềm năng xấp xỉ max_connections × work_mem × số thao tác.",
+      "relevant_pages": [
+        5
+      ],
+      "expect_fallback": false,
+      "hits": [
+        {
+          "score": 0.7867625,
+          "page": 5,
+          "chunk_index": 12
+        },
+        {
+          "score": 0.72945625,
+          "page": 5,
+          "chunk_index": 14
+        },
+        {
+          "score": 0.69930315,
+          "page": 5,
+          "chunk_index": 11
+        },
+        {
+          "score": 0.6593839,
+          "page": 9,
+          "chunk_index": 28
+        },
+        {
+          "score": 0.656476,
+          "page": 5,
+          "chunk_index": 13
+        }
+      ],
+      "retrieval_error": null,
+      "e2e": {
+        "answer": "Không nên đặt `work_mem` quá cao trên toàn hệ thống vì những lý do sau:\n\n*   `work_mem` là bộ nhớ dành cho mỗi thao tác sắp xếp hoặc băm bên trong một truy vấn [1].\n*   Một truy vấn phức tạp có thể sử dụng `work_mem` nhiều lần và mỗi kết nối đều có thể thực hiện điều này [1].\n*   Tổng bộ nhớ tiềm năng được tính xấp xỉ bằng `max_connections` nhân với `work_mem` nhân với số thao tác, do đó việc đặt giá trị quá cao có thể dẫn đến tiêu tốn quá nhiều bộ nhớ [1].",
+        "used_fallback": false,
+        "best_score": 0.7867625,
+        "sources": [
+          {
+            "number": 1,
+            "page": 5,
+            "chunk_index": 12,
+            "score": 0.7867625,
+            "cited": true
+          },
+          {
+            "number": 2,
+            "page": 5,
+            "chunk_index": 14,
+            "score": 0.72945625,
+            "cited": false
+          },
+          {
+            "number": 3,
+            "page": 5,
+            "chunk_index": 11,
+            "score": 0.69930315,
+            "cited": false
+          },
+          {
+            "number": 4,
+            "page": 9,
+            "chunk_index": 28,
+            "score": 0.6593839,
+            "cited": false
+          },
+          {
+            "number": 5,
+            "page": 5,
+            "chunk_index": 13,
+            "score": 0.656476,
+            "cited": false
+          }
+        ],
+        "latency": {
+          "embed_ms": 355.6849000015063,
+          "search_ms": 31.335200008470565,
+          "llm_ms": 13189.866600005189,
+          "total_ms": 13577.089800004615
+        },
+        "retries": 0,
+        "invalid_citations": [],
+        "truncated": false,
+        "from_cache": true
+      },
+      "e2e_error": null,
+      "judge": {
+        "correctness": "correct",
+        "is_refusal": false,
+        "faithful": true,
+        "unsupported_claims": [],
+        "notes": "The system answer correctly identifies the reason why work_mem should not be set too high, including the formula for potential memory usage, which matches the reference answer.",
+        "from_cache": true
+      },
+      "judge_error": null,
+      "outcome": "correct"
+    },
+    {
+      "id": "q10",
+      "type": "multi",
+      "question": "MVCC là gì và vì sao nó dẫn đến hiện tượng phình bảng?",
+      "reference_answer": "MVCC: thao tác đọc không chặn thao tác ghi và ngược lại. Mỗi UPDATE tạo phiên bản dòng mới, bản cũ thành dòng chết; nếu không được dọn thì bảng và chỉ mục phình to và truy vấn chậm dần.",
+      "relevant_pages": [
+        6
+      ],
+      "expect_fallback": false,
+      "hits": [
+        {
+          "score": 0.7810101,
+          "page": 6,
+          "chunk_index": 15
+        },
+        {
+          "score": 0.65751344,
+          "page": 1,
+          "chunk_index": 1
+        },
+        {
+          "score": 0.644956,
+          "page": 4,
+          "chunk_index": 10
+        },
+        {
+          "score": 0.62746644,
+          "page": 6,
+          "chunk_index": 17
+        },
+        {
+          "score": 0.6061559,
+          "page": 6,
+          "chunk_index": 18
+        }
+      ],
+      "retrieval_error": null,
+      "e2e": {
+        "answer": "MVCC (Multi-Version Concurrency Control) là cơ chế của PostgreSQL cho phép các thao tác đọc không chặn thao tác ghi và ngược lại [1].\n\nMVCC dẫn đến hiện tượng phình bảng vì mỗi lệnh UPDATE không sửa đổi dữ liệu tại chỗ mà tạo ra một phiên bản dòng mới, khiến phiên bản cũ trở thành \"dòng chết\" (dead tuple) [1]. Nếu các dòng chết này không được dọn dẹp, bảng và chỉ mục sẽ dần trở nên phình to (bloat) [1].",
+        "used_fallback": false,
+        "best_score": 0.7810101,
+        "sources": [
+          {
+            "number": 1,
+            "page": 6,
+            "chunk_index": 15,
+            "score": 0.7810101,
+            "cited": true
+          },
+          {
+            "number": 2,
+            "page": 1,
+            "chunk_index": 1,
+            "score": 0.65751344,
+            "cited": false
+          }
+        ],
+        "latency": {
+          "embed_ms": 446.34599999699276,
+          "search_ms": 55.93600000429433,
+          "llm_ms": 1054.6771999943303,
+          "total_ms": 1557.0953999995254
+        },
+        "retries": 0,
+        "invalid_citations": [],
+        "truncated": false,
+        "from_cache": true
+      },
+      "e2e_error": null,
+      "judge": {
+        "correctness": "correct",
+        "is_refusal": false,
+        "faithful": true,
+        "unsupported_claims": [],
+        "notes": "The system answer correctly defines MVCC and explains the mechanism of row versioning and dead tuples leading to table bloat, matching all key points in the reference answer.",
+        "from_cache": true
+      },
+      "judge_error": null,
+      "outcome": "correct"
+    },
+    {
+      "id": "q11",
+      "type": "multi",
+      "question": "Trong tình huống bảng orders 48 triệu dòng bị chậm, nguyên nhân là gì, nhóm khắc phục thế nào và đổi lại phải trả giá gì?",
+      "reference_answer": "Nguyên nhân: Seq Scan toàn bộ bảng. Khắc phục: CREATE INDEX CONCURRENTLY ON orders (customer_id, created_at DESC); p95 giảm từ 2,8 giây còn 12 mili giây. Đổi lại INSERT chậm đi khoảng 4%, chỉ mục nặng ~1,4GB và tạo mất ~6 phút.",
+      "relevant_pages": [
+        9
+      ],
+      "expect_fallback": false,
+      "hits": [
+        {
+          "score": 0.6803237,
+          "page": 9,
+          "chunk_index": 27
+        },
+        {
+          "score": 0.676898,
+          "page": 4,
+          "chunk_index": 10
+        },
+        {
+          "score": 0.6652171,
+          "page": 9,
+          "chunk_index": 28
+        },
+        {
+          "score": 0.664122,
+          "page": 4,
+          "chunk_index": 9
+        },
+        {
+          "score": 0.6553906,
+          "page": 1,
+          "chunk_index": 1
+        }
+      ],
+      "retrieval_error": null,
+      "e2e": {
+        "answer": "Trong tình huống bảng `orders` có 48 triệu dòng bị chậm, các thông tin cụ thể như sau:\n\n*   **Nguyên nhân:** Lệnh `EXPLAIN (ANALYZE, BUFFERS)` cho thấy hệ thống thực hiện `Seq Scan` (quét tuần tự) trên toàn bộ bảng và phải loại bỏ gần 48 triệu dòng [1].\n*   **Cách khắc phục:** Nhóm đã tạo một chỉ mục bằng lệnh `CREATE INDEX CONCURRENTLY ON orders (customer_id, created_at DESC)` [1].\n*   **Cái giá phải trả:** Việc tạo chỉ mục mất khoảng 6 phút, chỉ mục chiếm khoảng 1,4GB dung lượng lưu trữ và tốc độ `INSERT` bị chậm đi khoảng 4% [1].",
+        "used_fallback": false,
+        "best_score": 0.6803237,
+        "sources": [
+          {
+            "number": 1,
+            "page": 9,
+            "chunk_index": 27,
+            "score": 0.6803237,
+            "cited": true
+          },
+          {
+            "number": 2,
+            "page": 4,
+            "chunk_index": 10,
+            "score": 0.676898,
+            "cited": false
+          },
+          {
+            "number": 3,
+            "page": 9,
+            "chunk_index": 28,
+            "score": 0.6652171,
+            "cited": false
+          },
+          {
+            "number": 4,
+            "page": 4,
+            "chunk_index": 9,
+            "score": 0.664122,
+            "cited": false
+          },
+          {
+            "number": 5,
+            "page": 1,
+            "chunk_index": 1,
+            "score": 0.6553906,
+            "cited": false
+          }
+        ],
+        "latency": {
+          "embed_ms": 320.977799987304,
+          "search_ms": 31.31010000652168,
+          "llm_ms": 1369.0726999921026,
+          "total_ms": 1721.5444999892497
+        },
+        "retries": 0,
+        "invalid_citations": [],
+        "truncated": false,
+        "from_cache": true
+      },
+      "e2e_error": null,
+      "judge": {
+        "correctness": "correct",
+        "is_refusal": false,
+        "faithful": true,
+        "unsupported_claims": [],
+        "notes": "The system answer correctly identifies the cause, the fix, and the trade-offs, matching all key facts from the reference answer.",
+        "from_cache": true
+      },
+      "judge_error": null,
+      "outcome": "correct"
+    },
+    {
+      "id": "q12",
+      "type": "multi",
+      "question": "Tài liệu đề cập những phương pháp replication và sao lưu nào?",
+      "reference_answer": "Replication: streaming replication (nhân bản vật lý, mặc định bất đồng bộ), nhân bản đồng bộ, logical replication, replication slot. Sao lưu: pg_dump (logic) và pg_basebackup kết hợp WAL archiving (PITR).",
+      "relevant_pages": [
+        8
+      ],
+      "expect_fallback": false,
+      "hits": [
+        {
+          "score": 0.7486186,
+          "page": 8,
+          "chunk_index": 22
+        },
+        {
+          "score": 0.7236036,
+          "page": 8,
+          "chunk_index": 23
+        },
+        {
+          "score": 0.6863422,
+          "page": 1,
+          "chunk_index": 1
+        },
+        {
+          "score": 0.68074393,
+          "page": 8,
+          "chunk_index": 25
+        },
+        {
+          "score": 0.66154957,
+          "page": 8,
+          "chunk_index": 24
+        }
+      ],
+      "retrieval_error": null,
+      "e2e": {
+        "answer": "Tài liệu đề cập đến các phương pháp replication và sao lưu như sau:\n\n**Phương pháp replication:**\n*   **Streaming replication (nhân bản vật lý):** Chuyển nhật ký WAL từ máy chủ chính sang máy replica. Mặc định là bất đồng bộ, nhưng có thể cấu hình thành nhân bản đồng bộ thông qua `synchronous_commit` và `synchronous_standby_names` [1][2].\n*   **Logical replication:** Nhân bản theo từng bảng, cho phép thực hiện giữa các phiên bản PostgreSQL khác nhau [2].\n\n**Phương pháp sao lưu:**\n*   **pg_dump:** Tạo bản sao lưu logic, phù hợp để chuyển dữ liệu hoặc khôi phục từng bảng nhưng chậm đối với cơ sở dữ liệu lớn [4].\n*   **pg_basebackup kết hợp WAL archiving:** Cho phép khôi phục về một thời điểm bất kỳ (PITR) [4].",
+        "used_fallback": false,
+        "best_score": 0.7486186,
+        "sources": [
+          {
+            "number": 1,
+            "page": 8,
+            "chunk_index": 22,
+            "score": 0.7486186,
+            "cited": true
+          },
+          {
+            "number": 2,
+            "page": 8,
+            "chunk_index": 23,
+            "score": 0.7236036,
+            "cited": true
+          },
+          {
+            "number": 3,
+            "page": 1,
+            "chunk_index": 1,
+            "score": 0.6863422,
+            "cited": false
+          },
+          {
+            "number": 4,
+            "page": 8,
+            "chunk_index": 25,
+            "score": 0.68074393,
+            "cited": true
+          },
+          {
+            "number": 5,
+            "page": 8,
+            "chunk_index": 24,
+            "score": 0.66154957,
+            "cited": false
+          }
+        ],
+        "latency": {
+          "embed_ms": 345.3060999891022,
+          "search_ms": 16.109900010633282,
+          "llm_ms": 1289.3311000079848,
+          "total_ms": 1650.9151999925962
+        },
+        "retries": 0,
+        "invalid_citations": [],
+        "truncated": false,
+        "from_cache": true
+      },
+      "e2e_error": null,
+      "judge": {
+        "correctness": "partially_correct",
+        "is_refusal": false,
+        "faithful": true,
+        "unsupported_claims": [],
+        "notes": "The system answer covers most key points but misses 'replication slot' which is explicitly mentioned in the reference answer and the retrieved chunks.",
+        "from_cache": true
+      },
+      "judge_error": null,
+      "outcome": "partially_correct"
+    },
+    {
+      "id": "q13",
+      "type": "multi",
+      "question": "Những lỗi truy vấn thường gặp nào được nêu ở chương 3?",
+      "reference_answer": "Bảy lỗi: dùng hàm trên cột được lọc; SELECT * khi chỉ cần vài cột; OFFSET lớn; vấn đề N+1; tìm kiếm LIKE '%từ khóa%'; thống kê lỗi thời; transaction mở quá lâu.",
+      "relevant_pages": [
+        4
+      ],
+      "expect_fallback": false,
+      "hits": [
+        {
+          "score": 0.77603936,
+          "page": 4,
+          "chunk_index": 8
+        },
+        {
+          "score": 0.6656432,
+          "page": 4,
+          "chunk_index": 9
+        },
+        {
+          "score": 0.65768194,
+          "page": 1,
+          "chunk_index": 1
+        },
+        {
+          "score": 0.6437106,
+          "page": 4,
+          "chunk_index": 10
+        },
+        {
+          "score": 0.6394514,
+          "page": 9,
+          "chunk_index": 28
+        }
+      ],
+      "retrieval_error": null,
+      "e2e": {
+        "answer": "Chương 3 của tài liệu liệt kê các lỗi truy vấn thường gặp sau đây:\n\n*   **Dùng hàm trên cột được lọc:** Việc sử dụng hàm trong điều kiện `WHERE` (ví dụ: `lower(email)`) khiến chỉ mục thường trên cột đó không được sử dụng [1].\n*   **So sánh hai cột khác kiểu dữ liệu:** Dẫn đến việc PostgreSQL ép kiểu ngầm và bỏ qua chỉ mục [1].\n*   **Sử dụng `SELECT *` khi không cần thiết:** Làm tăng băng thông mạng và ngăn truy vấn đạt hiệu quả Index Only Scan [1].\n*   **Sử dụng `OFFSET` lớn:** Khiến hệ thống phải đọc và bỏ qua một lượng lớn dữ liệu trước khi lấy kết quả [2].\n*   **Vấn đề N+1:** Xảy ra khi ORM thực hiện một truy vấn lấy danh sách và sau đó thực hiện thêm N truy vấn riêng lẻ để lấy chi tiết cho từng dòng [2].\n*   **Tìm kiếm `LIKE '%từ khóa%'`:** Mẫu bắt đầu bằng ký tự đại diện không thể sử dụng chỉ mục B-tree [2].",
+        "used_fallback": false,
+        "best_score": 0.77603936,
+        "sources": [
+          {
+            "number": 1,
+            "page": 4,
+            "chunk_index": 8,
+            "score": 0.77603936,
+            "cited": true
+          },
+          {
+            "number": 2,
+            "page": 4,
+            "chunk_index": 9,
+            "score": 0.6656432,
+            "cited": true
+          },
+          {
+            "number": 3,
+            "page": 1,
+            "chunk_index": 1,
+            "score": 0.65768194,
+            "cited": false
+          }
+        ],
+        "latency": {
+          "embed_ms": 327.1426999999676,
+          "search_ms": 31.281500007025898,
+          "llm_ms": 1615.3655999951297,
+          "total_ms": 1974.0276000084123
+        },
+        "retries": 0,
+        "invalid_citations": [],
+        "truncated": false,
+        "from_cache": true
+      },
+      "e2e_error": null,
+      "judge": {
+        "correctness": "partially_correct",
+        "is_refusal": false,
+        "faithful": true,
+        "unsupported_claims": [],
+        "notes": "The system answer lists 6 errors, but misses 'thống kê lỗi thời' and 'transaction mở quá lâu' mentioned in the reference answer. It also includes an extra point 'So sánh hai cột khác kiểu dữ liệu' which is part of the first point in the source text, not a separate error.",
+        "from_cache": true
+      },
+      "judge_error": null,
+      "outcome": "partially_correct"
+    },
+    {
+      "id": "q14",
+      "type": "single",
+      "question": "Phân vùng bảng khai báo có những kiểu phân vùng nào?",
+      "reference_answer": "Ba kiểu: theo khoảng (range), theo danh sách (list) và theo băm (hash).",
+      "relevant_pages": [
+        7
+      ],
+      "expect_fallback": false,
+      "hits": [
+        {
+          "score": 0.68416667,
+          "page": 7,
+          "chunk_index": 19
+        },
+        {
+          "score": 0.64993,
+          "page": 7,
+          "chunk_index": 20
+        },
+        {
+          "score": 0.6442766,
+          "page": 7,
+          "chunk_index": 21
+        },
+        {
+          "score": 0.63835895,
+          "page": 2,
+          "chunk_index": 3
+        },
+        {
+          "score": 0.5952245,
+          "page": 6,
+          "chunk_index": 15
+        }
+      ],
+      "retrieval_error": null,
+      "e2e": {
+        "answer": "Từ PostgreSQL 10, phân vùng khai báo (declarative partitioning) hỗ trợ ba kiểu phân vùng bao gồm: phân vùng theo khoảng (range), theo danh sách (list) và theo băm (hash) [1].",
+        "used_fallback": false,
+        "best_score": 0.68416667,
+        "sources": [
+          {
+            "number": 1,
+            "page": 7,
+            "chunk_index": 19,
+            "score": 0.68416667,
+            "cited": true
+          }
+        ],
+        "latency": {
+          "embed_ms": 314.1740999999456,
+          "search_ms": 35.698599996976554,
+          "llm_ms": 1162.0254000008572,
+          "total_ms": 1511.9815000070957
+        },
+        "retries": 0,
+        "invalid_citations": [],
+        "truncated": false,
+        "from_cache": true
+      },
+      "e2e_error": null,
+      "judge": {
+        "correctness": "correct",
+        "is_refusal": false,
+        "faithful": true,
+        "unsupported_claims": [],
+        "notes": "The system answer correctly identifies the three types of partitioning (range, list, hash) as stated in the reference answer.",
+        "from_cache": true
+      },
+      "judge_error": null,
+      "outcome": "correct"
+    },
+    {
+      "id": "q15",
+      "type": "multi",
+      "question": "Những yếu tố nào có thể ngăn VACUUM/autovacuum dọn dòng chết?",
+      "reference_answer": "Transaction chạy quá lâu hoặc ở trạng thái 'idle in transaction', và replication slot bị bỏ quên; ngoài ra hot_standby_feedback có thể làm máy chủ chính giữ dòng chết lâu hơn.",
+      "relevant_pages": [
+        4,
+        6,
+        8
+      ],
+      "expect_fallback": false,
+      "hits": [
+        {
+          "score": 0.74754393,
+          "page": 6,
+          "chunk_index": 16
+        },
+        {
+          "score": 0.7474573,
+          "page": 6,
+          "chunk_index": 18
+        },
+        {
+          "score": 0.7245922,
+          "page": 6,
+          "chunk_index": 15
+        },
+        {
+          "score": 0.7085514,
+          "page": 6,
+          "chunk_index": 17
+        },
+        {
+          "score": 0.70672905,
+          "page": 4,
+          "chunk_index": 10
+        }
+      ],
+      "retrieval_error": null,
+      "e2e": {
+        "answer": "Các yếu tố có thể ngăn cản quá trình VACUUM hoặc autovacuum dọn dẹp các dòng chết bao gồm:\n\n*   **Transaction mở quá lâu:** Các transaction ở trạng thái \"idle in transaction\" vẫn giữ khóa, ngăn cản việc dọn dẹp các dòng chết và dẫn đến hiện tượng phình bảng [5].\n*   **Replication slot bị bỏ quên:** Việc này có thể ngăn cản quá trình dọn dẹp (đặc biệt là việc \"đóng băng\" các dòng cũ để tránh quay vòng mã giao dịch) [4].\n*   **Transaction chạy quá lâu:** Tương tự như replication slot, các transaction kéo dài quá mức có thể ngăn cản việc dọn dẹp định kỳ [4].",
+        "used_fallback": false,
+        "best_score": 0.74754393,
+        "sources": [
+          {
+            "number": 1,
+            "page": 6,
+            "chunk_index": 16,
+            "score": 0.74754393,
+            "cited": false
+          },
+          {
+            "number": 2,
+            "page": 6,
+            "chunk_index": 18,
+            "score": 0.7474573,
+            "cited": false
+          },
+          {
+            "number": 3,
+            "page": 6,
+            "chunk_index": 15,
+            "score": 0.7245922,
+            "cited": false
+          },
+          {
+            "number": 4,
+            "page": 6,
+            "chunk_index": 17,
+            "score": 0.7085514,
+            "cited": true
+          },
+          {
+            "number": 5,
+            "page": 4,
+            "chunk_index": 10,
+            "score": 0.70672905,
+            "cited": true
+          }
+        ],
+        "latency": {
+          "embed_ms": 335.89840000786353,
+          "search_ms": 19.05859999533277,
+          "llm_ms": 1570.9694000106538,
+          "total_ms": 1926.2134000018705
+        },
+        "retries": 0,
+        "invalid_citations": [],
+        "truncated": false,
+        "from_cache": true
+      },
+      "e2e_error": null,
+      "judge": {
+        "correctness": "partially_correct",
+        "is_refusal": false,
+        "faithful": true,
+        "unsupported_claims": [],
+        "notes": "The system answer correctly identifies long-running transactions, idle in transaction, and replication slots as factors. It misses the 'hot_standby_feedback' factor mentioned in the reference answer.",
+        "from_cache": true
+      },
+      "judge_error": null,
+      "outcome": "partially_correct"
+    },
+    {
+      "id": "q16",
+      "type": "insufficient",
+      "question": "pg_upgrade dùng để làm gì?",
+      "reference_answer": "Tài liệu không đề cập pg_upgrade.",
+      "relevant_pages": [],
+      "expect_fallback": true,
+      "hits": [
+        {
+          "score": 0.6700859,
+          "page": 6,
+          "chunk_index": 15
+        },
+        {
+          "score": 0.65522933,
+          "page": 1,
+          "chunk_index": 1
+        },
+        {
+          "score": 0.6540818,
+          "page": 8,
+          "chunk_index": 25
+        },
+        {
+          "score": 0.6486797,
+          "page": 1,
+          "chunk_index": 0
+        },
+        {
+          "score": 0.6457777,
+          "page": 6,
+          "chunk_index": 17
+        }
+      ],
+      "retrieval_error": null,
+      "e2e": {
+        "answer": "Các tài liệu được cung cấp không chứa thông tin về `pg_upgrade`. Do đó, tôi không thể trả lời câu hỏi của bạn dựa trên các tài liệu này.",
+        "used_fallback": false,
+        "best_score": 0.6700859,
+        "sources": [
+          {
+            "number": 1,
+            "page": 6,
+            "chunk_index": 15,
+            "score": 0.6700859,
+            "cited": false
+          },
+          {
+            "number": 2,
+            "page": 1,
+            "chunk_index": 1,
+            "score": 0.65522933,
+            "cited": false
+          },
+          {
+            "number": 3,
+            "page": 8,
+            "chunk_index": 25,
+            "score": 0.6540818,
+            "cited": false
+          }
+        ],
+        "latency": {
+          "embed_ms": 321.9111999933375,
+          "search_ms": 28.85519999836106,
+          "llm_ms": 1079.510499999742,
+          "total_ms": 1430.5450999963796
+        },
+        "retries": 0,
+        "invalid_citations": [],
+        "truncated": false,
+        "from_cache": true
+      },
+      "e2e_error": null,
+      "judge": {
+        "correctness": "correct",
+        "is_refusal": true,
+        "faithful": true,
+        "unsupported_claims": [],
+        "notes": "The system correctly identifies that the provided documents do not contain information about pg_upgrade, which matches the reference answer.",
+        "from_cache": true
+      },
+      "judge_error": null,
+      "outcome": "correct_refusal"
+    },
+    {
+      "id": "q17",
+      "type": "insufficient",
+      "question": "Cách triển khai sharding trong PostgreSQL?",
+      "reference_answer": "Tài liệu không đề cập sharding (chỉ nói về phân vùng bảng trên một máy chủ).",
+      "relevant_pages": [],
+      "expect_fallback": true,
+      "hits": [
+        {
+          "score": 0.7174328,
+          "page": 1,
+          "chunk_index": 1
+        },
+        {
+          "score": 0.7144117,
+          "page": 7,
+          "chunk_index": 21
+        },
+        {
+          "score": 0.7049576,
+          "page": 7,
+          "chunk_index": 19
+        },
+        {
+          "score": 0.67715126,
+          "page": 1,
+          "chunk_index": 0
+        },
+        {
+          "score": 0.67569745,
+          "page": 2,
+          "chunk_index": 2
+        }
+      ],
+      "retrieval_error": null,
+      "e2e": {
+        "answer": "Tài liệu được cung cấp không đề cập đến cách triển khai \"sharding\" trong PostgreSQL.\n\nTài liệu chỉ cung cấp thông tin về **phân vùng bảng (partitioning)** từ PostgreSQL 10 với ba kiểu: phân vùng theo khoảng (range), theo danh sách (list) và theo băm (hash) [3]. Phân vùng bảng giúp tối ưu hiệu năng thông qua cơ chế *partition pruning* và hỗ trợ bảo trì dữ liệu cũ hiệu quả hơn [3].",
+        "used_fallback": false,
+        "best_score": 0.7174328,
+        "sources": [
+          {
+            "number": 1,
+            "page": 1,
+            "chunk_index": 1,
+            "score": 0.7174328,
+            "cited": false
+          },
+          {
+            "number": 2,
+            "page": 7,
+            "chunk_index": 21,
+            "score": 0.7144117,
+            "cited": false
+          },
+          {
+            "number": 3,
+            "page": 7,
+            "chunk_index": 19,
+            "score": 0.7049576,
+            "cited": true
+          },
+          {
+            "number": 4,
+            "page": 1,
+            "chunk_index": 0,
+            "score": 0.67715126,
+            "cited": false
+          },
+          {
+            "number": 5,
+            "page": 2,
+            "chunk_index": 2,
+            "score": 0.67569745,
+            "cited": false
+          }
+        ],
+        "latency": {
+          "embed_ms": 323.768200003542,
+          "search_ms": 20.963400005712174,
+          "llm_ms": 994.6389999968233,
+          "total_ms": 1339.5407000061823
+        },
+        "retries": 0,
+        "invalid_citations": [],
+        "truncated": false,
+        "from_cache": true
+      },
+      "e2e_error": null,
+      "judge": {
+        "correctness": "correct",
+        "is_refusal": true,
+        "faithful": true,
+        "unsupported_claims": [],
+        "notes": "The system correctly identifies that the document does not cover sharding and provides the correct context about partitioning as mentioned in the reference answer.",
+        "from_cache": true
+      },
+      "judge_error": null,
+      "outcome": "correct_refusal"
+    },
+    {
+      "id": "q18",
+      "type": "insufficient",
+      "question": "So sánh hiệu năng PostgreSQL với MySQL?",
+      "reference_answer": "Tài liệu không đề cập MySQL.",
+      "relevant_pages": [],
+      "expect_fallback": true,
+      "hits": [
+        {
+          "score": 0.71231866,
+          "page": 1,
+          "chunk_index": 1
+        },
+        {
+          "score": 0.69785756,
+          "page": 1,
+          "chunk_index": 0
+        },
+        {
+          "score": 0.6936488,
+          "page": 2,
+          "chunk_index": 2
+        },
+        {
+          "score": 0.68586314,
+          "page": 4,
+          "chunk_index": 9
+        },
+        {
+          "score": 0.68089616,
+          "page": 9,
+          "chunk_index": 27
+        }
+      ],
+      "retrieval_error": null,
+      "e2e": {
+        "answer": "Tài liệu được cung cấp không chứa thông tin so sánh hiệu năng giữa PostgreSQL và MySQL. Tài liệu này chỉ tập trung vào các kỹ thuật chẩn đoán và cải thiện hiệu năng dành riêng cho hệ quản trị cơ sở dữ liệu PostgreSQL [2].",
+        "used_fallback": false,
+        "best_score": 0.71231866,
+        "sources": [
+          {
+            "number": 1,
+            "page": 1,
+            "chunk_index": 1,
+            "score": 0.71231866,
+            "cited": false
+          },
+          {
+            "number": 2,
+            "page": 1,
+            "chunk_index": 0,
+            "score": 0.69785756,
+            "cited": true
+          },
+          {
+            "number": 3,
+            "page": 2,
+            "chunk_index": 2,
+            "score": 0.6936488,
+            "cited": false
+          },
+          {
+            "number": 4,
+            "page": 4,
+            "chunk_index": 9,
+            "score": 0.68586314,
+            "cited": false
+          },
+          {
+            "number": 5,
+            "page": 9,
+            "chunk_index": 27,
+            "score": 0.68089616,
+            "cited": false
+          }
+        ],
+        "latency": {
+          "embed_ms": 351.7500000016298,
+          "search_ms": 27.868999997735955,
+          "llm_ms": 1164.2053999967175,
+          "total_ms": 1544.0318999899318
+        },
+        "retries": 0,
+        "invalid_citations": [],
+        "truncated": false,
+        "from_cache": true
+      },
+      "e2e_error": null,
+      "judge": {
+        "correctness": "correct",
+        "is_refusal": true,
+        "faithful": true,
+        "unsupported_claims": [],
+        "notes": "The system correctly identifies that the document does not contain information about MySQL and explains that the document focuses on PostgreSQL performance optimization.",
+        "from_cache": true
+      },
+      "judge_error": null,
+      "outcome": "correct_refusal"
+    },
+    {
+      "id": "q19",
+      "type": "unrelated",
+      "question": "Hướng dẫn nấu phở bò.",
+      "reference_answer": "Không liên quan đến tài liệu.",
+      "relevant_pages": [],
+      "expect_fallback": true,
+      "hits": [
+        {
+          "score": 0.5426606,
+          "page": 1,
+          "chunk_index": 0
+        },
+        {
+          "score": 0.52703893,
+          "page": 5,
+          "chunk_index": 14
+        },
+        {
+          "score": 0.5223472,
+          "page": 1,
+          "chunk_index": 1
+        },
+        {
+          "score": 0.50669986,
+          "page": 4,
+          "chunk_index": 9
+        },
+        {
+          "score": 0.50478435,
+          "page": 3,
+          "chunk_index": 7
+        }
+      ],
+      "retrieval_error": null,
+      "e2e": {
+        "answer": "Tôi không tìm thấy thông tin đủ liên quan trong các tài liệu đã tải lên để trả lời câu hỏi này. Bạn có thể thử diễn đạt lại câu hỏi, chọn đúng tài liệu, hoặc tải lên tài liệu có chứa nội dung này.",
+        "used_fallback": true,
+        "best_score": 0.5426606,
+        "sources": [],
+        "latency": {
+          "embed_ms": 325.75859999633394,
+          "search_ms": 18.14369999920018,
+          "llm_ms": 0.0,
+          "total_ms": 343.9317000011215
+        },
+        "retries": 0,
+        "invalid_citations": [],
+        "truncated": false,
+        "from_cache": true
+      },
+      "e2e_error": null,
+      "judge": null,
+      "judge_error": null,
+      "outcome": "correct_fallback"
+    },
+    {
+      "id": "q20",
+      "type": "unrelated",
+      "question": "Ai vô địch World Cup gần nhất?",
+      "reference_answer": "Không liên quan đến tài liệu.",
+      "relevant_pages": [],
+      "expect_fallback": true,
+      "hits": [
+        {
+          "score": 0.48143494,
+          "page": 6,
+          "chunk_index": 17
+        },
+        {
+          "score": 0.4772805,
+          "page": 1,
+          "chunk_index": 1
+        },
+        {
+          "score": 0.47493345,
+          "page": 1,
+          "chunk_index": 0
+        },
+        {
+          "score": 0.4713031,
+          "page": 6,
+          "chunk_index": 15
+        },
+        {
+          "score": 0.45831722,
+          "page": 2,
+          "chunk_index": 2
+        }
+      ],
+      "retrieval_error": null,
+      "e2e": {
+        "answer": "Tôi không tìm thấy thông tin đủ liên quan trong các tài liệu đã tải lên để trả lời câu hỏi này. Bạn có thể thử diễn đạt lại câu hỏi, chọn đúng tài liệu, hoặc tải lên tài liệu có chứa nội dung này.",
+        "used_fallback": true,
+        "best_score": 0.48143494,
+        "sources": [],
+        "latency": {
+          "embed_ms": 322.7630000037607,
+          "search_ms": 16.261700002360158,
+          "llm_ms": 0.0,
+          "total_ms": 339.03750000172295
+        },
+        "retries": 0,
+        "invalid_citations": [],
+        "truncated": false,
+        "from_cache": true
+      },
+      "e2e_error": null,
+      "judge": null,
+      "judge_error": null,
+      "outcome": "correct_fallback"
+    }
+  ]
+}
