@@ -1,0 +1,16 @@
+# Allowlist: ignore everything, then re-include only what the app needs at runtime.
+*
+!requirements.txt
+!app/
+!web/
+
+# Never ship these even inside allowed folders
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+.env
+.env.*
+data/
+evaluation/cache
+.venv
+.git

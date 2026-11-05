@@ -28,6 +28,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, File, Path as PathParam, 
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError, model_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -52,6 +53,7 @@ from app.vectorstore import QdrantStore, StoreErrorCode, VectorStoreError
 
 logger = logging.getLogger(__name__)
 
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"  # plain HTML/CSS/JS UI, served at /ui/
 STREAMLIT_ORIGINS = ["http://localhost:8501", "http://127.0.0.1:8501"]  # Streamlit's default port
 READ_CHUNK_BYTES = 64 * 1024
 MULTIPART_OVERHEAD_BYTES = 64 * 1024  # boundaries + part headers around the file in the body
@@ -896,6 +898,9 @@ def create_app() -> FastAPI:
             message=p["message"], warnings=p["warnings"], verify_requested=p["verify_requested"], verified=p["verified"],
             verifier_decisions=p["verifier_decisions"], **_cost(result),
         )
+
+    # Static web UI. Mounted last so it can never shadow an API route.
+    app.mount("/ui", StaticFiles(directory=WEB_DIR, html=True), name="ui")
 
     return app
 

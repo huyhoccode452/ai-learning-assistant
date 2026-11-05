@@ -8,5 +8,24 @@ services:
       - qdrant_data:/qdrant/storage
     restart: unless-stopped
 
+  api:
+    build: .
+    depends_on:
+      - qdrant
+    # Keys and model names come from .env; `required: false` lets `config`/`build`
+    # work without it (the API itself then fails to start: GEMINI_API_KEY is required).
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Overrides QDRANT_URL from .env (localhost would point at the container itself).
+      QDRANT_URL: http://qdrant:6333
+    ports:
+      - "8000:8000"
+    volumes:
+      # Uploads (data/uploads) and SQLite (data/app.sqlite3). Container user has uid 1000.
+      - ./data:/app/data
+    restart: unless-stopped
+
 volumes:
   qdrant_data:
