@@ -18,13 +18,15 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # project root: `frontend.*` imports
 
 from frontend import view  # noqa: E402
+from frontend.history_views import apply_pending_load, history_section, reset_conversation  # noqa: E402
 from frontend.api_client import DEFAULT_BASE_URL, ApiClient, ApiError, ChatResult, Document  # noqa: E402
 from frontend.study_views import quiz_area, summary_area  # noqa: E402
 
 MAX_QUESTION_CHARS = 2000  # same limit as the backend (app/rag.py)
 SECTIONS = ("Hỏi đáp", "Tóm tắt", "Trắc nghiệm")
 INTERRUPTED = ("Yêu cầu trước đó bị gián đoạn khi trang được làm mới nên chưa có câu trả lời. "
-               "Máy chủ có thể vẫn đang xử lý. Hãy hỏi lại nếu cần.")
+               "Máy chủ có thể vẫn đang xử lý; nếu nó đã xong, cuộc trò chuyện đã lưu trong mục Lịch sử sẽ có câu trả lời. "
+               "Hãy hỏi lại nếu cần.")
 
 
 def upload_limit_mb() -> int:
@@ -38,7 +40,8 @@ def init_state() -> None:
     defaults = {"messages": [], "pending": None, "uploader_n": 0, "handled": set(), "notice": None, "confirm_delete": None,
                 "first_seen": {}, "docs": [], "scope": [], "known_ready": set(), "docs_sig": None, "polling_active": False,
                 "fresh_docs": False, "docs_error": None, "summaries": {}, "summary_error": None, "quiz": None, "quiz_run": 0,
-                "quiz_error": None}
+                "quiz_error": None, "conversation_id": None, "pending_load": None, "history_limit": 10,
+                "confirm_delete_conversation": None, "history_missing": 0}
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
     if "client" not in st.session_state:  # tests put a fake client here before the first run
@@ -188,7 +191,10 @@ def render_result(result: ChatResult) -> None:
                     st.markdown(view.source_header(source))
                     if source.excerpt:
                         st.markdown(view.excerpt_quote(source))
-    st.caption(view.latency_caption(result.latency, result.used_fallback))
+    if result.latency:
+        st.caption(view.latency_caption(result.latency, result.used_fallback))
+    if not result.saved:
+        st.warning(view.NOT_SAVED_NOTE)
 
 
 def render_body(message: dict) -> None:
@@ -205,6 +211,9 @@ def chat_area(client: ApiClient, scope: list[str], disabled_reason: str | None, 
     if ss.pending and ss.pending["sent"]:  # the previous run was cut off while waiting for the server
         ss.messages.append({"role": "assistant", "error": INTERRUPTED, "level": "warning"})
         ss.pending = None
+    st.caption(view.FOLLOW_UP_NOTE)
+    if ss.history_missing:
+        st.warning(view.missing_documents_note(ss.history_missing))
     question = st.chat_input("Đặt câu hỏi về tài liệu đã chọn…" if not disabled_reason else disabled_reason,
                              disabled=disabled_reason is not None, max_chars=MAX_QUESTION_CHARS)
     if question and not ss.pending:  # a disabled input returns nothing, so no separate check is needed
@@ -221,12 +230,18 @@ def chat_area(client: ApiClient, scope: list[str], disabled_reason: str | None, 
         with st.chat_message("assistant"):
             with st.spinner("Đang tìm trong tài liệu và hỏi mô hình… (tối đa khoảng 60 giây)"):
                 try:
-                    message = {"role": "assistant", "result": client.chat(ss.pending["question"], ss.pending["doc_ids"])}
+                    result = client.chat(ss.pending["question"], ss.pending["doc_ids"], conversation_id=ss.conversation_id)
+                    message = {"role": "assistant", "result": result}
+                    ss.conversation_id = result.conversation_id or ss.conversation_id
                 except ApiError as exc:
                     message = {"role": "assistant", "error": exc.message, "level": "warning" if exc.kind == "timeout" else "error"}
+                    if exc.code == "conversation_not_found":  # deleted elsewhere: the next question starts a new conversation
+                        ss.conversation_id = None
                 ss.messages.append(message)  # stored before any further Streamlit call
                 ss.pending = None
             render_body(message)
+        if "result" in message and message["result"].saved:
+            st.rerun()  # the server saved it: redraw so the sidebar list shows the new or updated conversation
 
 
 # ---------------------------------------------------------------------- page
@@ -245,6 +260,8 @@ def main() -> None:
     ss.docs_error = refresh_documents(client) if backend_ok else None
     ss.fresh_docs = backend_ok  # tells the panel that this run already fetched the list
     ss.docs_sig = tuple((d.doc_id, d.status) for d in ss.docs)
+    if backend_ok:  # before any widget: it may change the chat scope and the open section
+        apply_pending_load(client, [d.doc_id for d in ss.docs if d.status == "ready"])
     ss.polling_active = backend_ok and view.still_polling(ss.docs, ss.first_seen, time.monotonic())
     panel = st.fragment(documents_panel, run_every=view.POLL_INTERVAL_S if ss.polling_active else None)
 
@@ -265,10 +282,14 @@ def main() -> None:
         names = {d.doc_id: d.filename for d in ready}
         st.multiselect("Hỏi trong các tài liệu", options=ready_ids, format_func=lambda i: names.get(i, i), key="scope",
                        disabled=not ready_ids, placeholder="Chưa có tài liệu sẵn sàng")
-        if st.button("Xóa hội thoại"):
-            ss.messages, ss.pending = [], None
+        if st.button("Xóa hội thoại", help="Chỉ xóa phần đang hiển thị và bắt đầu cuộc trò chuyện mới. Cuộc trò chuyện đã lưu vẫn còn "
+                                          "trong mục Lịch sử; muốn xóa hẳn, dùng nút Xóa ở đó."):
+            reset_conversation()
             st.rerun()
-        st.caption("Bản demo chạy cục bộ: không có đăng nhập, mọi người truy cập đều thấy cùng một bộ tài liệu.")
+        st.caption("“Xóa hội thoại” chỉ làm sạch màn hình; bản đã lưu vẫn nằm trong Lịch sử.")
+        if backend_ok:
+            history_section(client)
+        st.caption("Bản demo chạy cục bộ: không có đăng nhập, mọi người truy cập đều thấy cùng một bộ tài liệu và cùng một lịch sử.")
 
     st.title("AI Learning Assistant")
     st.caption("Cách hoạt động: tài liệu được chia nhỏ, chuyển thành vector và lưu vào Qdrant (xử lý nền). Câu hỏi được so với các "

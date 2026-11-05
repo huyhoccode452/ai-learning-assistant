@@ -24,6 +24,7 @@ Query: question -> embed query -> top-k search (filtered by document/collection)
 - Payload per chunk: doc_id, filename, page, chunk_index, text.
 - If no chunk passes the threshold, return a clear "insufficient evidence" fallback WITHOUT calling the LLM.
 Summary and quiz (`app/summary.py`, `app/quiz.py`): read the document's chunks from Qdrant (`get_chunks`), ONE LLM call when it fits (map-reduce with a hard cap otherwise); quiz questions are validated and grounded in code (verbatim quote check, code-side option shuffle) with an optional verifier call. Every result is stored in SQLite (`generations`, keyed by text + params + model + prompt version) so a repeat costs 0 LLM calls.
+Conversation history (FR-10): `POST /chat` saves every exchange (question + answer + sources + flags) in SQLite in ONE transaction (`Database.save_exchange`); a save failure never loses the answer (`saved: false`). `GET|DELETE /conversations`; opening a saved conversation makes no LLM call. Earlier messages are NOT used to understand follow-up questions (out of scope; the UI says so). No auth: history is shared (KI-29).
 - RAG prompt must: answer only from supplied context, never invent document facts, say when context is insufficient, separate document evidence from general knowledge, cite chunk sources.
 
 ## Commands (update as they become real)

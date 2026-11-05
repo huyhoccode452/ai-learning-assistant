@@ -9,7 +9,23 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from frontend.api_client import ApiError, ChatResult, Document, Health, Latency, Quiz, Source, Summary, Upload
+from dataclasses import replace
+
+from frontend.api_client import (
+    ApiError,
+    ChatResult,
+    ConversationDetail,
+    ConversationInfo,
+    ConversationPage,
+    Document,
+    Health,
+    HistoryMessage,
+    Latency,
+    Quiz,
+    Source,
+    Summary,
+    Upload,
+)
 
 APP = str(Path(__file__).resolve().parent.parent / "frontend" / "streamlit_app.py")
 A, B, C = "a" * 16, "b" * 16, "c" * 16
@@ -50,6 +66,16 @@ class FakeClient:
         self.uploads: list[tuple[str, bytes]] = []
         self.list_calls = 0
         self.pending_sent_during_call: list[bool] = []
+        self.conversations: dict[str, dict] = {}  # what the server has saved: id -> {title, doc_ids, messages, tick}
+        self.save_chats = True  # False: the server fails to save (the answer still comes back, saved=False)
+        self.chat_conversation_ids: list[str | None] = []
+        self.history_error: "ApiError | None" = None
+        self.detail_error: "ApiError | None" = None
+        self.delete_conversation_error: "ApiError | None" = None
+        self.detail_calls: list[str] = []
+        self.deleted_conversations: list[str] = []
+        self.list_conversation_calls: list[tuple[int, int]] = []
+        self._tick = 0
         self.summary_calls: list[tuple] = []
         self.summary_reply: "Summary | ApiError | None" = None
         self.quiz_calls: list[dict] = []
@@ -65,14 +91,57 @@ class FakeClient:
         self.list_calls += 1
         return list(self.docs)
 
-    def chat(self, question: str, doc_ids: list[str] | None = None) -> ChatResult:
+    def chat(self, question: str, doc_ids: list[str] | None = None, conversation_id: str | None = None) -> ChatResult:
         import streamlit as st  # we are inside the script run here, so session_state is the real one
 
         self.pending_sent_during_call.append(st.session_state["pending"]["sent"])
         self.chat_calls.append((question, doc_ids))
+        self.chat_conversation_ids.append(conversation_id)
+        if conversation_id is not None and conversation_id not in self.conversations:
+            raise ApiError("http", "Không tìm thấy cuộc trò chuyện.", status=404, code="conversation_not_found")
         if isinstance(self.reply, ApiError):
             raise self.reply
-        return self.reply
+        if not self.save_chats:
+            return replace(self.reply, conversation_id=conversation_id, saved=False)
+        saved_id = conversation_id or f"{len(self.conversations) + 1:032x}"
+        self._tick += 1
+        conversation = self.conversations.setdefault(saved_id, {"title": question, "doc_ids": [], "messages": [], "tick": 0})
+        conversation["tick"] = self._tick
+        conversation["doc_ids"] = list(dict.fromkeys([*conversation["doc_ids"], *(doc_ids or [d.doc_id for d in self.docs])]))
+        stamp = "2026-11-05T08:00:00+00:00"
+        conversation["messages"] += [HistoryMessage("user", question, stamp, None),
+                                     HistoryMessage("assistant", self.reply.answer, stamp, replace(self.reply, conversation_id=saved_id))]
+        return replace(self.reply, conversation_id=saved_id, saved=True)
+
+    def _info(self, conversation_id: str) -> ConversationInfo:
+        c = self.conversations[conversation_id]
+        existing = {d.doc_id for d in self.docs}
+        return ConversationInfo(conversation_id, c["title"], tuple(c["doc_ids"]), tuple(d for d in c["doc_ids"] if d not in existing),
+                                "2026-11-05T08:00:00+00:00", "2026-11-05T08:30:00+00:00", len(c["messages"]))
+
+    def list_conversations(self, limit: int = 20, offset: int = 0) -> ConversationPage:
+        self.list_conversation_calls.append((limit, offset))
+        if self.history_error:
+            raise self.history_error
+        ordered = sorted(self.conversations, key=lambda i: -self.conversations[i]["tick"])
+        return ConversationPage(tuple(self._info(i) for i in ordered[offset:offset + limit]), len(ordered), limit, offset)
+
+    def get_conversation(self, conversation_id: str) -> ConversationDetail:
+        self.detail_calls.append(conversation_id)
+        if self.detail_error:
+            raise self.detail_error
+        if conversation_id not in self.conversations:
+            raise ApiError("http", "Không tìm thấy cuộc trò chuyện.", status=404, code="conversation_not_found")
+        messages = list(self.conversations[conversation_id]["messages"])  # saved as they were (tests set document_exists)
+        return ConversationDetail(self._info(conversation_id), tuple(messages))
+
+    def delete_conversation(self, conversation_id: str) -> int:
+        if self.delete_conversation_error:
+            raise self.delete_conversation_error
+        if conversation_id not in self.conversations:
+            raise ApiError("http", "Không tìm thấy cuộc trò chuyện.", status=404, code="conversation_not_found")
+        self.deleted_conversations.append(conversation_id)
+        return len(self.conversations.pop(conversation_id)["messages"])
 
     def summary(self, doc_id: str, style: str = "short", refresh: bool = False) -> Summary:
         self.summary_calls.append((doc_id, style, refresh))

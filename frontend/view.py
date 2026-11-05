@@ -3,8 +3,9 @@
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime, tzinfo
 
-from frontend.api_client import Document, Latency, Quiz, QuizQuestion, Source, Summary
+from frontend.api_client import ConversationDetail, ConversationInfo, Document, Latency, Quiz, QuizQuestion, Source, Summary
 
 # Document polling is bounded: the UI never waits forever for a free-tier embedding job.
 SLOW_AFTER_S = 30.0  # show the "free tier is slow" hint
@@ -56,8 +57,9 @@ def page_text(page: int | None) -> str:
 
 def source_header(source: Source) -> str:
     badge = ":green-badge[Được trích dẫn]" if source.cited else ":gray-badge[Chỉ truy xuất]"
+    gone = "" if source.document_exists else " · :red-badge[Tài liệu đã bị xóa]"
     return (f"**[{source.number}]** {escape_markdown(source.filename)} · {page_text(source.page)} · "
-            f"điểm {source.score:.3f} · {badge}")
+            f"điểm {source.score:.3f} · {badge}{gone}")
 
 
 def excerpt_quote(source: Source) -> str:
@@ -160,3 +162,45 @@ def quiz_caption(quiz: Quiz) -> str:
 
 def verified_badge(verified: bool | None) -> str:
     return ":green-badge[Đã xác minh]" if verified else ":gray-badge[Chưa xác minh]"
+
+
+# ---------------------------------------------------------------------- saved conversations (history)
+
+FOLLOW_UP_NOTE = (
+    "Lưu ý: mỗi câu hỏi được trả lời độc lập. Hệ thống không dùng các tin nhắn trước để hiểu câu hỏi nối tiếp "
+    "(ví dụ “còn cái đó thì sao?”), nên hãy nêu rõ chủ đề trong từng câu hỏi. Lịch sử chỉ để xem lại."
+)
+NOT_SAVED_NOTE = (
+    "Câu trả lời này chưa được lưu vào lịch sử (lỗi lưu trữ phía máy chủ). Câu trả lời vẫn dùng được; hãy chép lại nếu cần."
+)
+
+
+def format_time(iso: str, tz: tzinfo | None = None) -> str:
+    """'05/11/2026 13:40' in the given time zone (default: this computer's). Unreadable input is shown as it is."""
+    try:
+        return datetime.fromisoformat(iso).astimezone(tz).strftime("%d/%m/%Y %H:%M")
+    except ValueError:
+        return iso
+
+
+def history_caption(info: ConversationInfo, tz: tzinfo | None = None) -> str:
+    parts = [format_time(info.updated_at, tz), f"{info.message_count} tin nhắn", f"{len(info.doc_ids)} tài liệu"]
+    if info.missing_doc_ids:
+        parts.append(f"{len(info.missing_doc_ids)} đã bị xóa")
+    return " · ".join(parts)
+
+
+def missing_documents_note(count: int) -> str:
+    return (f"{count} tài liệu của cuộc trò chuyện này đã bị xóa khỏi hệ thống. Các nguồn của chúng vẫn được hiển thị "
+            "(đánh dấu “Tài liệu đã bị xóa”) nhưng không còn tài liệu để đối chiếu.")
+
+
+def messages_from_history(detail: ConversationDetail) -> list[dict]:
+    """Saved messages in exactly the shape the live chat keeps in session_state, so one renderer shows both."""
+    messages: list[dict] = []
+    for m in detail.messages:
+        if m.role == "user" or m.result is None:
+            messages.append({"role": "user", "content": m.content})
+        else:
+            messages.append({"role": "assistant", "result": m.result})
+    return messages

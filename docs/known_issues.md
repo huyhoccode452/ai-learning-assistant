@@ -3,7 +3,7 @@
 Issues we are aware of and have deliberately not fixed yet. Each entry says what we
 verified, what we did not, and when to revisit. Update the status when one is resolved.
 
-Last updated after summary and quiz generation (1086 tests + 3 integration tests).
+Last updated after conversation history (1200 tests + 3 integration tests).
 
 | ID | Area | Issue | Status |
 |----|------|-------|--------|
@@ -35,6 +35,7 @@ Last updated after summary and quiz generation (1086 tests + 3 integration tests
 | KI-26 | evaluation | Page-level labels hide chunk-level misses; tiny set; threshold tuned and tested on the same questions | Open |
 | KI-27 | frontend | Polling, per-session chat history, UI-side timeout does not stop the server, English widget texts, one browser checked | Open, by design |
 | KI-28 | summary / quiz | LLM-verified, not proven: easy distractors, shared blind spots of the verifier, quota cost, no lock on identical requests | Open |
+| KI-29 | history | Saved chats are shared (no auth) and keep source excerpts of deleted documents; follow-ups do NOT use history | Open, by design |
 
 ## KI-01: Repeated headers/footers are indexed
 
@@ -381,3 +382,41 @@ verification 6.8 s, map-reduce with small limits (4 groups) 5 calls in 9.0 s, a 
   server-side exam mode. Fine for study use; not for assessment.
 - Real runs covered only the 9-page sample PDF (no DOCX/TXT, no document near the 60 000-character budget; the map-reduce path was
   run with artificially small limits).
+
+## KI-29: Conversation history (`conversations` / `messages`, `GET|DELETE /conversations`)
+
+**What it is.** Every chat exchange is saved by the backend while it answers: the question, the answer, the sources (JSON), `used_fallback`,
+`best_score`, the latency and `truncated`, in the conversation given by `conversation_id` (omitted = a new conversation titled with the first
+question). Users can list, open and delete saved conversations. Opening one only reads SQLite: **no LLM call** (measured on the real stack:
+0 `POST /chat` caused by opening; 1.3 s to open; the list and the messages survived a restart of Streamlit and of the API).
+
+**What it is NOT: follow-up understanding.** Earlier messages are *not* sent to the model and are not used to rewrite or interpret the next
+question ("what about it?" is answered as an isolated question). `conversation_id` only says where to save. The UI says so under the chat
+title and the OpenAPI description of `conversation_id` says so. Rewriting a follow-up with the history needs an extra LLM call per question
+and is out of scope.
+
+**Saving is all-or-nothing, and never costs the answer.** `Database.save_exchange` writes the conversation row (when new), the user message,
+the assistant message and the `updated_at` bump in one `BEGIN IMMEDIATE` transaction (tested with a failing trigger: nothing is left behind,
+no conversation without messages, no question without its answer; and with 8 simultaneous exchanges into one conversation). If saving fails
+for any reason the answer (which cost an LLM call) is still returned with `saved: false`, the error is logged, and the UI shows a warning.
+A wrong `conversation_id` is a `404` *before* the model is called, so it costs no quota. A failed LLM call saves nothing.
+
+**Privacy and sharing (the important limits).**
+- There is no authentication (KI-23): **every client that can reach the API sees, opens and deletes every conversation**, and can write into any
+  conversation whose 32-character id it knows. Ids are random but they are not secrets.
+- Questions, answers and 200-character excerpts of the source passages are stored in plain text in `data/app.sqlite3` and kept until the
+  conversation is deleted (no expiry, no encryption).
+- **Deleting a document does not delete the history that mentions it**: the conversation still loads and its sources are marked
+  "Tài liệu đã bị xóa" (`document_exists: false`, listed in `missing_doc_ids`), but the stored excerpts of that document remain readable.
+  To remove them, delete the conversations. There is deliberately no foreign key from a conversation to `documents`.
+
+**Other limits.**
+- No rename (`PATCH`), no search, no export, no "delete all", no retention policy. The sidebar lists at most the 100 most recently active
+  conversations (the API page limit); the title is the first question and never changes.
+- "Xóa hội thoại" clears the screen and detaches from the saved conversation (the next question starts a new one); it never deletes anything
+  saved. It overlaps with "Cuộc trò chuyện mới" on purpose: one is a clean-up of the screen, the other the explicit way to start again.
+- Two browser tabs on the same conversation append to it independently; a tab does not update live.
+- A request cut off by a page redraw may still have been saved by the server: it then appears in the history even though the UI showed
+  "bị gián đoạn".
+- The schema gained columns (`doc_ids_json`, `updated_at`, and the answer fields of `messages`). `init_db` adds them to an existing database
+  (verified on the real, old-schema `app.sqlite3` and in a test); there is no down-migration.

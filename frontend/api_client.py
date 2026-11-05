@@ -89,6 +89,7 @@ class Source:
     score: float
     excerpt: str
     cited: bool
+    document_exists: bool = True  # False only in a saved conversation whose document was deleted afterwards
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,7 +107,9 @@ class ChatResult:
     used_fallback: bool
     best_score: float | None
     truncated: bool
-    latency: Latency
+    latency: Latency | None  # None only for a saved message whose latency could not be read
+    conversation_id: str | None = None  # the saved conversation this exchange was stored in
+    saved: bool = True  # False = the answer is fine but could not be stored in the history
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,6 +167,39 @@ class Quiz:
     llm_calls: int
     cached: bool
     latency_ms: float
+
+
+@dataclass(frozen=True, slots=True)
+class ConversationInfo:
+    id: str
+    title: str | None
+    doc_ids: tuple[str, ...]
+    missing_doc_ids: tuple[str, ...]  # documents of this conversation that have been deleted since
+    created_at: str
+    updated_at: str
+    message_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class ConversationPage:
+    items: tuple[ConversationInfo, ...]
+    total: int
+    limit: int
+    offset: int
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryMessage:
+    role: str  # 'user' | 'assistant'
+    content: str
+    created_at: str
+    result: ChatResult | None  # the answer with its sources, for an assistant message
+
+
+@dataclass(frozen=True, slots=True)
+class ConversationDetail:
+    info: ConversationInfo
+    messages: tuple[HistoryMessage, ...]
 
 
 def _clip(text: str) -> str:
@@ -256,15 +292,41 @@ class ApiClient:
                         error_message=d.get("error_message"), num_pages=d.get("num_pages"), num_chunks=d.get("num_chunks"))
 
     @staticmethod
+    def _latency(lat: dict | None) -> Latency | None:
+        if not lat:
+            return None
+        return Latency(float(lat["embed_ms"]), float(lat["search_ms"]), float(lat["llm_ms"]), float(lat["total_ms"]))
+
+    @staticmethod
+    def _sources(items: list[dict]) -> tuple[Source, ...]:
+        return tuple(Source(number=int(s["number"]), filename=s["filename"], page=s.get("page"), score=float(s["score"]),
+                            excerpt=s.get("excerpt", ""), cited=bool(s["cited"]), document_exists=bool(s.get("document_exists", True)))
+                     for s in items)
+
+    @staticmethod
     def _chat(d: dict) -> ChatResult:
-        lat = d["latency"]
         return ChatResult(
             answer=d["answer"], used_fallback=bool(d["used_fallback"]), truncated=bool(d.get("truncated", False)),
             best_score=None if d.get("best_score") is None else float(d["best_score"]),
-            latency=Latency(float(lat["embed_ms"]), float(lat["search_ms"]), float(lat["llm_ms"]), float(lat["total_ms"])),
-            sources=tuple(Source(number=int(s["number"]), filename=s["filename"], page=s.get("page"), score=float(s["score"]),
-                                 excerpt=s.get("excerpt", ""), cited=bool(s["cited"])) for s in d["sources"]),
+            latency=ApiClient._latency(d["latency"]), sources=ApiClient._sources(d["sources"]),
+            conversation_id=d.get("conversation_id"), saved=bool(d.get("saved", True)),
         )
+
+    @staticmethod
+    def _conversation_info(d: dict) -> ConversationInfo:
+        return ConversationInfo(
+            id=d["id"], title=d.get("title"), doc_ids=tuple(d["doc_ids"]), missing_doc_ids=tuple(d.get("missing_doc_ids", [])),
+            created_at=d["created_at"], updated_at=d["updated_at"], message_count=int(d["message_count"]))
+
+    @staticmethod
+    def _history_message(m: dict, conversation_id: str) -> HistoryMessage:
+        result = None
+        if m["role"] == "assistant":
+            result = ChatResult(
+                answer=m["content"], sources=ApiClient._sources(m.get("sources", [])), used_fallback=bool(m.get("used_fallback")),
+                best_score=None if m.get("best_score") is None else float(m["best_score"]), truncated=bool(m.get("truncated")),
+                latency=ApiClient._latency(m.get("latency")), conversation_id=conversation_id, saved=True)
+        return HistoryMessage(role=m["role"], content=m["content"], created_at=m["created_at"], result=result)
 
     @staticmethod
     def _summary(d: dict) -> Summary:
@@ -317,10 +379,12 @@ class ApiClient:
         data, _ = self._request("DELETE", f"/documents/{doc_id}", read_timeout=LIST_READ_TIMEOUT_S)
         return self._parse(lambda d: int(d["deleted_chunks"]), data)
 
-    def chat(self, question: str, doc_ids: list[str] | None = None) -> ChatResult:
+    def chat(self, question: str, doc_ids: list[str] | None = None, conversation_id: str | None = None) -> ChatResult:
         body: dict[str, Any] = {"question": question}
         if doc_ids is not None:
             body["doc_ids"] = doc_ids
+        if conversation_id is not None:
+            body["conversation_id"] = conversation_id
         data, _ = self._request("POST", "/chat", read_timeout=CHAT_READ_TIMEOUT_S, json=body)
         return self._parse(self._chat, data)
 
@@ -338,3 +402,21 @@ class ApiClient:
         data, _ = self._request("POST", f"/documents/{doc_id}/quiz", read_timeout=GENERATE_READ_TIMEOUT_S,
                                 timeout_hint=GENERATE_TIMEOUT_HINT, json=body)
         return self._parse(self._quiz, data)
+
+    # ------------------------------------------------------------------ saved conversations (history)
+
+    def list_conversations(self, limit: int = 20, offset: int = 0) -> ConversationPage:
+        data, _ = self._request("GET", "/conversations", read_timeout=LIST_READ_TIMEOUT_S, params={"limit": limit, "offset": offset})
+        return self._parse(lambda d: ConversationPage(tuple(self._conversation_info(i) for i in d["items"]), int(d["total"]),
+                                                      int(d["limit"]), int(d["offset"])), data)
+
+    def get_conversation(self, conversation_id: str) -> ConversationDetail:
+        """Reading a saved conversation never calls the model."""
+        data, _ = self._request("GET", f"/conversations/{conversation_id}", read_timeout=LIST_READ_TIMEOUT_S)
+        return self._parse(lambda d: ConversationDetail(
+            self._conversation_info(d), tuple(self._history_message(m, d["id"]) for m in d["messages"])), data)
+
+    def delete_conversation(self, conversation_id: str) -> int:
+        """Returns how many messages were removed with it."""
+        data, _ = self._request("DELETE", f"/conversations/{conversation_id}", read_timeout=LIST_READ_TIMEOUT_S)
+        return self._parse(lambda d: int(d["deleted_messages"]), data)

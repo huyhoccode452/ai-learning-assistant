@@ -13,6 +13,7 @@ Choices worth knowing (details in docs/known_issues.md):
     message and a stable machine-readable code. Raw exception text is never sent to the client.
 """
 
+import json
 import logging
 import os
 import time
@@ -23,15 +24,15 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, Path as PathParam, Request, Response, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Path as PathParam, Query, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError, model_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import Settings, get_settings
-from app.db import Database, Document, DocStatus
+from app.db import Conversation, Database, Document, DocStatus
 from app.embeddings import Embedder, EmbeddingError, GeminiEmbedder
 from app.embeddings import ErrorCode as EmbeddingCode
 from app.ingestion import (
@@ -58,9 +59,15 @@ DEFAULT_BODY_LIMIT_BYTES = 1024 * 1024  # every endpoint except the upload only 
 MAX_DOC_IDS = 50
 TOP_K_MAX = 20
 DOC_ID_PATTERN = r"^[0-9a-f]{16}$"  # compute_doc_id: 16 hex characters
+CONVERSATION_ID_PATTERN = r"^[0-9a-f]{32}$"  # uuid4().hex
+HISTORY_PAGE_DEFAULT = 20
+HISTORY_PAGE_MAX = 100
+TITLE_MAX_CHARS = 60
 
 DocIdPath = Annotated[str, PathParam(pattern=DOC_ID_PATTERN, description="Document id (16 hex chars)")]
 DocIdStr = Annotated[str, StringConstraints(pattern=DOC_ID_PATTERN)]
+ConvIdPath = Annotated[str, PathParam(pattern=CONVERSATION_ID_PATTERN, description="Conversation id (32 hex chars)")]
+ConvIdStr = Annotated[str, StringConstraints(pattern=CONVERSATION_ID_PATTERN)]
 
 # ====================================================================== errors
 
@@ -200,6 +207,11 @@ class ChatRequest(BaseModel):
         description="Restrict the search to these documents (all must be 'ready'). Omit = all ready documents.",
     )
     top_k: int | None = Field(default=None, ge=1, le=TOP_K_MAX, description="Default: TOP_K from settings")
+    conversation_id: ConvIdStr | None = Field(
+        default=None,
+        description="Save the exchange in this saved conversation. Omit = start a new one. Only for saving: "
+                    "earlier messages are NOT used to understand the question.",
+    )
 
 
 class SourceOut(BaseModel):
@@ -227,7 +239,51 @@ class ChatResponse(BaseModel):
     latency: LatencyOut
     best_score: float | None
     truncated: bool
+    conversation_id: str | None = Field(default=None, description="The saved conversation this exchange belongs to")
+    saved: bool = Field(default=False, description="False = the answer is valid but could not be saved to the history")
 
+
+class HistorySourceOut(SourceOut):
+    document_exists: bool = Field(default=True, description="False = the document of this source has been deleted since")
+
+
+class HistoryMessageOut(BaseModel):
+    id: int
+    role: str
+    content: str
+    created_at: str
+    # Assistant messages only:
+    sources: list[HistorySourceOut] = []
+    used_fallback: bool | None = None
+    best_score: float | None = None
+    truncated: bool | None = None
+    latency: LatencyOut | None = None
+
+
+class ConversationOut(BaseModel):
+    id: str
+    title: str | None
+    doc_ids: list[str] = Field(description="Every document searched in this conversation")
+    missing_doc_ids: list[str] = Field(description="Those among doc_ids that have been deleted since")
+    created_at: str
+    updated_at: str
+    message_count: int
+
+
+class ConversationListOut(BaseModel):
+    items: list[ConversationOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class ConversationDetailOut(ConversationOut):
+    messages: list[HistoryMessageOut]
+
+
+class DeleteConversationOut(BaseModel):
+    conversation_id: str
+    deleted_messages: int
 
 class SummaryRequest(BaseModel):
     style: SummaryStyle = Field(default=SummaryStyle.SHORT, description="'short' or 'detailed'")
@@ -306,6 +362,51 @@ class QuizOut(BaseModel):
 
 def _cost(result: GenResult) -> dict[str, Any]:
     return {"llm_calls": result.llm_calls, "cached": result.cached, "latency_ms": result.total_ms, "llm_ms": result.llm_ms}
+
+
+def _conversation_title(question: str) -> str:
+    """The first question of a conversation, on one line, cut to TITLE_MAX_CHARS."""
+    flat = " ".join(question.split())
+    return flat if len(flat) <= TITLE_MAX_CHARS else flat[: TITLE_MAX_CHARS - 1].rstrip() + "…"
+
+
+def _save_exchange(db: Database, body: "ChatRequest", doc_ids: list[str], response: "ChatResponse") -> tuple[str | None, bool]:
+    """Store the question and the answer. A failure is logged and reported with saved=False: the answer cost an LLM
+    call and is good, so it must still reach the user."""
+    try:
+        conversation_id = db.save_exchange(
+            conversation_id=body.conversation_id, title=_conversation_title(body.question), doc_ids=doc_ids,
+            question=body.question, answer=response.answer,
+            sources_json=json.dumps([s.model_dump() for s in response.sources], ensure_ascii=False),
+            used_fallback=response.used_fallback, best_score=response.best_score,
+            latency_json=json.dumps(response.latency.model_dump()), truncated=response.truncated,
+        )
+    except Exception:  # noqa: BLE001 - whatever went wrong, the answer must not be lost
+        logger.exception("Could not save the chat exchange (the answer is returned anyway)")
+        return body.conversation_id, False
+    return conversation_id, True
+
+
+def _conversation_not_found() -> ApiError:
+    return ApiError(404, "conversation_not_found", "Không tìm thấy cuộc trò chuyện.")
+
+
+def _parse_sources(raw: str | None) -> list[SourceOut]:
+    """Sources as saved. A damaged value gives no sources for that message instead of an error for the whole history."""
+    try:
+        items = json.loads(raw) if raw else []
+        return [SourceOut.model_validate(item) for item in items]
+    except (ValueError, TypeError, ValidationError):
+        logger.warning("Ignoring unreadable saved sources")
+        return []
+
+
+def _conversation_out(conversation: Conversation, existing: set[str]) -> ConversationOut:
+    return ConversationOut(
+        id=conversation.id, title=conversation.title, doc_ids=list(conversation.doc_ids),
+        missing_doc_ids=[d for d in conversation.doc_ids if d not in existing], created_at=conversation.created_at,
+        updated_at=conversation.updated_at, message_count=conversation.message_count,
+    )
 
 
 def _document_out(doc: Document) -> DocumentOut:
@@ -700,8 +801,60 @@ def create_app() -> FastAPI:
         db: Annotated[Database, Depends(get_db)],
         pipeline: Annotated[RagPipeline, Depends(get_pipeline)],
     ) -> ChatResponse:
+        if body.conversation_id is not None and db.get_conversation(body.conversation_id) is None:
+            raise _conversation_not_found()  # before the LLM call: a wrong id must not cost quota
         doc_ids = _require_documents(db, body.doc_ids)
-        return _chat_response(pipeline.answer(body.question, doc_ids=doc_ids, top_k=body.top_k))
+        response = _chat_response(pipeline.answer(body.question, doc_ids=doc_ids, top_k=body.top_k))
+        response.conversation_id, response.saved = _save_exchange(db, body, doc_ids, response)
+        return response
+
+    # ------------------------------------------------------------ saved conversations (history)
+
+    @app.get("/conversations", response_model=ConversationListOut, summary="Saved conversations, most recently active first")
+    def list_conversations(
+        db: Annotated[Database, Depends(get_db)],
+        limit: Annotated[int, Query(ge=1, le=HISTORY_PAGE_MAX)] = HISTORY_PAGE_DEFAULT,
+        offset: Annotated[int, Query(ge=0)] = 0,
+    ) -> ConversationListOut:
+        page = db.list_conversations(limit=limit, offset=offset)
+        referenced = list(dict.fromkeys(d for c in page for d in c.doc_ids))
+        existing = set(db.get_documents(referenced))
+        return ConversationListOut(items=[_conversation_out(c, existing) for c in page], total=db.count_conversations(),
+                                   limit=limit, offset=offset)
+
+    @app.get("/conversations/{conversation_id}", response_model=ConversationDetailOut,
+             summary="One saved conversation with its messages (reading it makes no LLM call)",
+             responses={404: {"model": ErrorResponse}})
+    def get_conversation(conversation_id: ConvIdPath, db: Annotated[Database, Depends(get_db)]) -> ConversationDetailOut:
+        conversation = db.get_conversation(conversation_id)
+        if conversation is None:
+            raise _conversation_not_found()
+        saved = db.list_messages(conversation_id)
+        parsed = {m.id: _parse_sources(m.sources_json) for m in saved}
+        referenced = list(dict.fromkeys([*conversation.doc_ids, *(s.doc_id for items in parsed.values() for s in items)]))
+        existing = set(db.get_documents(referenced))  # documents that still exist right now
+        messages = []
+        for m in saved:
+            latency = None
+            if m.latency_json:
+                try:
+                    latency = LatencyOut.model_validate(json.loads(m.latency_json))
+                except (ValueError, ValidationError):
+                    latency = None
+            messages.append(HistoryMessageOut(
+                id=m.id, role=str(m.role), content=m.content, created_at=m.created_at,
+                sources=[HistorySourceOut(**s.model_dump(), document_exists=s.doc_id in existing) for s in parsed[m.id]],
+                used_fallback=m.used_fallback, best_score=m.best_score, truncated=m.truncated, latency=latency,
+            ))
+        return ConversationDetailOut(**_conversation_out(conversation, existing).model_dump(), messages=messages)
+
+    @app.delete("/conversations/{conversation_id}", response_model=DeleteConversationOut,
+                responses={404: {"model": ErrorResponse}})
+    def delete_conversation(conversation_id: ConvIdPath, db: Annotated[Database, Depends(get_db)]) -> DeleteConversationOut:
+        deleted = db.delete_conversation(conversation_id)
+        if deleted is None:
+            raise _conversation_not_found()
+        return DeleteConversationOut(conversation_id=conversation_id, deleted_messages=deleted)
 
     @app.post("/documents/{doc_id}/summary", response_model=SummaryOut,
               summary="Summary of one ready document (1 LLM call, or map-reduce for a very long one)",
