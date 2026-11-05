@@ -38,6 +38,13 @@ def limited(tmp_path):
     env.close()
 
 
+@pytest.fixture
+def plain(tmp_path):
+    env = client_for(tmp_path)
+    yield env
+    env.close()
+
+
 def doc_text(n: int) -> bytes:
     return TEXT + f"\n\nDocument number {n}.".encode()
 
@@ -358,3 +365,37 @@ def test_env_example_documents_every_new_variable() -> None:
                  "daily_limit_per_ip", "trusted_proxy_hops"):
         assert name in fields
     assert "QDRANT_API_KEY=\n" in text.replace("\r\n", "\n")  # shipped empty: never a real key
+
+
+# =========================================================================== site root (hosting health checks)
+
+
+def test_get_root_redirects_to_the_web_ui_with_a_307(plain) -> None:
+    response = plain.client.get("/", follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == "/ui/"
+
+
+def test_following_the_root_redirect_serves_the_web_ui(plain) -> None:
+    response = plain.client.get("/")  # TestClient follows redirects by default
+    assert response.status_code == 200 and str(response.url).endswith("/ui/")
+    assert "text/html" in response.headers["content-type"]
+
+
+def test_head_root_answers_200_without_a_body_so_health_checks_pass(plain) -> None:
+    response = plain.client.head("/", follow_redirects=False)
+    assert response.status_code == 200
+    assert response.content == b""
+
+
+def test_the_root_routes_are_not_in_the_api_docs_and_do_not_shadow_the_api(plain) -> None:
+    assert "/" not in plain.client.get("/openapi.json").json()["paths"]
+    assert plain.client.get("/health").status_code == 200
+    assert plain.client.get("/ui/").status_code == 200
+    assert plain.client.get("/no-such-route").status_code == 404  # unknown paths still 404
+
+
+def test_the_root_is_not_counted_by_the_daily_limit(limited) -> None:
+    for _ in range(10):
+        assert limited.client.head("/").status_code == 200
+        assert limited.client.get("/", follow_redirects=False).status_code == 307

@@ -28,7 +28,7 @@ from typing import Annotated, Any
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Path as PathParam, Query, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError, model_validator
@@ -772,6 +772,16 @@ def create_app() -> FastAPI:
         return _error_response(500, *INTERNAL_ERROR)
 
     # ------------------------------------------------------------ routes
+
+    # The site root. Browsers get sent to the web UI; hosts (Render) probe "/" with HEAD or GET and
+    # treat a 404 as a failed health check, so HEAD answers 200 without a body.
+    @app.get("/", include_in_schema=False)
+    def root() -> RedirectResponse:
+        return RedirectResponse("/ui/", status_code=307)
+
+    @app.head("/", include_in_schema=False)
+    def root_head() -> Response:
+        return Response(status_code=200)
 
     @app.get("/health", response_model=HealthOut)
     def health(store: Annotated[QdrantStore, Depends(get_store)]) -> HealthOut:
