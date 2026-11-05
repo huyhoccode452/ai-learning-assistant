@@ -29,7 +29,7 @@ Query: question -> embed query -> top-k search (filtered by document/collection)
 - venv: `python -m venv .venv && source .venv/bin/activate`
 - Qdrant: `docker compose up -d`
 - API: `uvicorn app.main:app --reload`
-- UI: `streamlit run frontend/streamlit_app.py`
+- UI: `streamlit run frontend/streamlit_app.py` (from the project root; `.streamlit/config.toml` makes it listen on 127.0.0.1 only; `API_BASE_URL` defaults to http://127.0.0.1:8000, `UPLOAD_MAX_MB` to 20 and must equal the backend's `MAX_UPLOAD_MB`)
 - Tests: `pytest -q`
 - Evaluation (real API calls, cached in `evaluation/cache/`): `python evaluation/evaluate.py` (`--skip-llm` retrieval only, `--report-only` rebuild the report)
 

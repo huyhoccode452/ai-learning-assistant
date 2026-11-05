@@ -3,7 +3,7 @@
 Issues we are aware of and have deliberately not fixed yet. Each entry says what we
 verified, what we did not, and when to revisit. Update the status when one is resolved.
 
-Last updated after `evaluation/evaluate.py` and the first real evaluation run (392 tests + 3 integration tests).
+Last updated after `frontend/streamlit_app.py` (513 tests + 3 integration tests).
 
 | ID | Area | Issue | Status |
 |----|------|-------|--------|
@@ -33,6 +33,7 @@ Last updated after `evaluation/evaluate.py` and the first real evaluation run (3
 | KI-24 | api | Thread-pool starvation, blocked chat during long LLM calls | Open |
 | KI-25 | api | Small consistency gaps (ready but vectors missing, same bytes with another name) | Open |
 | KI-26 | evaluation | Page-level labels hide chunk-level misses; tiny set; threshold tuned and tested on the same questions | Open |
+| KI-27 | frontend | Polling, per-session chat history, UI-side timeout does not stop the server, English widget texts, one browser checked | Open, by design |
 
 ## KI-01: Repeated headers/footers are indexed
 
@@ -307,3 +308,27 @@ the design. Mitigations if needed: lower retries for chat, a semaphore for index
   one document, the effect of the repeated footers (KI-01) in isolation.
 - The cached run in `evaluation/cache/` is what makes the numbers reproducible; without it, LLM answers can differ slightly
   (temperature 0.2).
+
+## KI-27: Limits of the Streamlit client (`frontend/`)
+
+- **Polling, not push.** While a document is `processing` the sidebar fragment calls `GET /documents` every 2 s; it gives up
+  after 180 s (the user can press "Kiểm tra lại"; after 30 s a "free tier is slow" hint is shown). Measured on the sample
+  PDF: `processing` -> `ready` in about 3 s, seen by the page without any click. A 500-chunk document (KI-12) would exceed
+  the 180 s limit and need the manual re-check. Every interaction also costs one `GET /health` and one `GET /documents`.
+- **The 60 s UI-side timeout only ends the UI's wait** (`requests` read timeout, per socket read, not a hard wall-clock cap).
+  The server keeps the LLM call running, so the thread stays busy (KI-18, KI-24) and the answer is lost. The message says the
+  request may still be running. Checked with a real socket that never answers (timeout fired at the configured time).
+- **A browser interaction during a chat call cuts the run.** The question is marked `sent` before the call, so it is never sent
+  twice; the user sees "bị gián đoạn" and has to ask again. Not reproduced in a real browser (needs a click inside the 1-60 s
+  of a call); covered by an AppTest that sets the state directly.
+- **Chat history lives in `st.session_state` only**: a browser reload or a new tab starts an empty conversation (documents stay,
+  they are on the server). No persistence of conversations although `db.py` has the tables.
+- **No authentication, single shared document set** (KI-23). `.streamlit/config.toml` makes Streamlit listen on 127.0.0.1 only
+  (its default is every network interface); that is not access control.
+- **Upload size** is capped in the widget from `UPLOAD_MAX_MB` (default 20) which must be kept equal to the backend's
+  `MAX_UPLOAD_MB`; the backend stays the real limit (a 30 MB upload got `413` in 0.05 s through the client).
+- **Some texts are Streamlit's own and stay English** ("Upload", "20MB per file", "Deploy"). Not localised.
+- Browser check used Playwright with the installed Microsoft Edge (installed in a scratch venv outside the project, not a
+  project dependency); no other browser or mobile layout was looked at.
+- The client trusts the Vietnamese message in the backend's error body. If a proxy answers with another body, the client shows
+  its own generic text by status code instead of the raw body.

@@ -1,0 +1,8 @@
+# Read by `streamlit run` when started from the project root.
+[server]
+# The app has no login (docs/known_issues.md KI-23): listen on this machine only, not on the whole network.
+address = "127.0.0.1"
+headless = true
+
+[browser]
+gatherUsageStats = false
