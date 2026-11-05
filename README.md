@@ -7,11 +7,9 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.162-009688?logo=fastapi&logoColor=white)](app/main.py)
 [![Docker](https://img.shields.io/badge/docker-compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
 
-> **Live demo:** _add link here_ &nbsp;|&nbsp; **Demo GIF:** _add `docs/demo.gif` here (upload, ask, click a citation)_
->
-> <!-- When the GIF exists: ![Demo](docs/demo.gif) -->
+> **Live demo:** _add link here_
 
-![Answer with citations and sources](docs/screenshots/web-02-answer.png)
+![Demo: upload, ask, click a citation](docs/demo.gif)
 
 ## Highlights
 
