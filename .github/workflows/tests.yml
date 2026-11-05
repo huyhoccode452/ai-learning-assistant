@@ -1,0 +1,41 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Settings() requires a key to be present. It is a placeholder: the suite fakes Gemini and
+      # never calls it. Real-API tests carry the `integration` marker and are deselected by
+      # pytest.ini (addopts = -m "not integration"), exactly as in a local `pytest -q`.
+      GEMINI_API_KEY: ci-placeholder-not-a-real-key
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"  # the version the project is developed and tested on (Dockerfile too)
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # No Qdrant service here: the tests that need a server skip themselves when it is unreachable.
+      - name: Run tests
+        run: pytest -q

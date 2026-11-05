@@ -2,7 +2,7 @@
 
 **Upload a PDF, DOCX or TXT, ask questions in natural language, and get answers grounded in your document with page-level citations. When the document does not contain the answer, it says so instead of guessing.**
 
-[![Tests](https://img.shields.io/badge/tests-1189%20passed-brightgreen)](#tests-and-evaluation)
+[![Tests](https://github.com/huyhoccode452/ai-learning-assistant/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/huyhoccode452/ai-learning-assistant/actions/workflows/tests.yml)
 [![Python](https://img.shields.io/badge/python-3.12-blue?logo=python&logoColor=white)](requirements.txt)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.162-009688?logo=fastapi&logoColor=white)](app/main.py)
 [![Docker](https://img.shields.io/badge/docker-compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
@@ -158,7 +158,7 @@ python evaluation/evaluate.py --report-only   # rebuild evaluation/report.md fro
 python evaluation/evaluate.py                 # re-run (real API calls, cached in evaluation/cache/)
 ```
 
-The test badge above is a static label, not a CI status: there is no CI pipeline in this repository. The last run on this machine was `1189 passed, 29 skipped, 3 deselected` (Qdrant was not running; the 3 deselected tests call the real Gemini API).
+The GitHub Actions workflow [`.github/workflows/tests.yml`](.github/workflows/tests.yml) runs `pytest -q` on Python 3.12 for every push and pull request to `main`. It has no Qdrant service, so the 29 Qdrant tests skip there. A run without Qdrant gives `1189 passed, 29 skipped, 3 deselected` (the 3 deselected tests call the real Gemini API).
 
 | Evaluation metric (20 questions, 1 document, 2026-11-05) | Result |
 |---|---|
