@@ -7,8 +7,6 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.162-009688?logo=fastapi&logoColor=white)](app/main.py)
 [![Docker](https://img.shields.io/badge/docker-compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
 
-> **Live demo:** _add link here_
-
 ![Demo: upload, ask, click a citation](docs/demo.gif)
 
 ## Highlights
@@ -119,7 +117,7 @@ The model's answer is not trusted text: it is generated from uploaded documents 
 Requirements: Python 3.12 (the version used for development and tests), Docker, and a free Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey).
 
 ```powershell
-git clone <your-repo-url> ai-learning-assistant
+git clone https://github.com/huyhoccode452/ai-learning-assistant.git
 cd ai-learning-assistant
 python -m venv .venv
 .venv\Scripts\activate            # macOS/Linux: source .venv/bin/activate
