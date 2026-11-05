@@ -87,7 +87,8 @@ class QdrantStore:
         self.dim: int = settings.embedding_dim
         self._url = settings.qdrant_url
         self._batch_size = upsert_batch_size
-        self._client = client or QdrantClient(url=settings.qdrant_url, timeout=30)
+        api_key = settings.qdrant_api_key.get_secret_value() if settings.qdrant_api_key else None
+        self._client = client or QdrantClient(url=settings.qdrant_url, api_key=api_key, timeout=30)
 
     def close(self) -> None:
         self._client.close()

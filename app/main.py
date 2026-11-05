@@ -16,9 +16,10 @@ Choices worth knowing (details in docs/known_issues.md):
 import json
 import logging
 import os
+import re
 import time
 import uuid
-from collections.abc import Callable, MutableMapping
+from collections.abc import Callable, Mapping, MutableMapping
 from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
@@ -29,6 +30,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+import uvicorn
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError, model_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -47,6 +49,7 @@ from app.ingestion import (
 from app.generation import GenerationError, GenerationErrorCode, GenResult
 from app.ingestion import ErrorCode as IngestionCode
 from app.quiz import generate_quiz
+from app.ratelimit import DailyRateLimiter, client_ip
 from app.rag import GeminiLLM, LLM, MAX_QUESTION_CHARS, RagAnswer, RagError, RagErrorCode, RagPipeline
 from app.summary import SummaryStyle, summarize_document
 from app.vectorstore import QdrantStore, StoreErrorCode, VectorStoreError
@@ -65,6 +68,8 @@ CONVERSATION_ID_PATTERN = r"^[0-9a-f]{32}$"  # uuid4().hex
 HISTORY_PAGE_DEFAULT = 20
 HISTORY_PAGE_MAX = 100
 TITLE_MAX_CHARS = 60
+# The POST routes that spend Gemini quota: chat, upload (embeds), summary, quiz.
+RATE_LIMITED_ROUTE = re.compile(r"^/(chat|documents|documents/[0-9a-f]{16}/(summary|quiz))$")
 
 DocIdPath = Annotated[str, PathParam(pattern=DOC_ID_PATTERN, description="Document id (16 hex chars)")]
 DocIdStr = Annotated[str, StringConstraints(pattern=DOC_ID_PATTERN)]
@@ -550,6 +555,56 @@ class BodySizeLimitMiddleware:
         await response(scope, receive, send)
 
 
+def _format_wait(seconds: int) -> str:
+    minutes = max(1, round(seconds / 60))
+    hours, minutes = divmod(minutes, 60)
+    if hours == 0:
+        return f"{minutes} phút"
+    return f"{hours} giờ {minutes} phút" if minutes else f"{hours} giờ"
+
+
+class RateLimitMiddleware:
+    """Daily per-IP limit on the endpoints that call Gemini (see app/ratelimit.py).
+
+    A middleware, not a dependency: it answers BEFORE the request body is read, so a client over the
+    limit cannot make the server parse an upload first. Retry-After is left out on purpose: the UIs
+    print it as "wait N seconds", which is unhelpful for a wait of several hours; the message says
+    when the limit resets instead.
+    """
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: MutableMapping[str, Any], receive: Any, send: Any) -> None:
+        if scope["type"] != "http" or scope["method"] != "POST" or not RATE_LIMITED_ROUTE.match(scope["path"]):
+            await self.app(scope, receive, send)
+            return
+        application = scope["app"]
+        settings: Settings = _resolve(application, get_settings)
+        limit = settings.daily_limit_per_ip
+        if limit == 0:
+            await self.app(scope, receive, send)
+            return
+        limiter: DailyRateLimiter | None = getattr(application.state, "rate_limiter", None)
+        if limiter is None or limiter.limit != limit:  # no await in between, so no two requests race here
+            limiter = application.state.rate_limiter = DailyRateLimiter(limit)
+        ip = client_ip(scope, settings.trusted_proxy_hops)
+        decision = limiter.hit(ip)
+        if decision.allowed:
+            await self.app(scope, receive, send)
+            return
+        logger.info("Daily limit reached: %s %s (%d/%d)", scope["method"], scope["path"], decision.used, decision.limit)
+        message = (
+            f"Bạn đã dùng hết {limit} lượt gọi AI trong ngày hôm nay của bản demo này "
+            "(hỏi đáp, tóm tắt, tạo quiz và tải tài liệu lên đều được tính). "
+            f"Hạn mức được đặt lại sau khoảng {_format_wait(decision.reset_in_seconds)} (lúc 07:00 giờ Việt Nam). "
+            "Hãy quay lại sau nhé."
+        )
+        response = _error_response(429, "rate_limit.daily_exceeded", message,
+                                   {"limit": limit, "reset_in_seconds": decision.reset_in_seconds})
+        await response(scope, receive, send)
+
+
 # ====================================================================== indexing job
 
 
@@ -645,6 +700,11 @@ def create_app() -> FastAPI:
         database = Database(settings.sqlite_path)
         database.init_db()
         settings.upload_dir.mkdir(parents=True, exist_ok=True)
+        if settings.demo_mode:
+            logger.info("DEMO_MODE on: uploads up to %d MB, at most %d documents", settings.max_upload_mb,
+                        settings.demo_max_documents)
+            if settings.daily_limit_per_ip == 0:
+                logger.warning("DEMO_MODE is on but DAILY_LIMIT_PER_IP is 0: nothing limits Gemini calls per visitor")
         database.fail_stuck_processing(
             "interrupted", "Máy chủ đã khởi động lại khi tài liệu đang được xử lý. Hãy tải tệp lên lại."
         )
@@ -668,6 +728,7 @@ def create_app() -> FastAPI:
             else DEFAULT_BODY_LIMIT_BYTES
         ),
     )
+    app.add_middleware(RateLimitMiddleware)  # outside BodySizeLimit (answers before any body is read), inside CORS
     app.add_middleware(
         CORSMiddleware,
         allow_origins=STREAMLIT_ORIGINS,
@@ -743,6 +804,14 @@ def create_app() -> FastAPI:
             response.status_code = 200 if existing.status == DocStatus.READY else 202
             logger.info("Upload of doc_id=%s ignored: already %s", doc_id, existing.status.value)
             return _document_out(existing)
+
+        if settings.demo_mode:
+            # Not counting failed rows: they hold no vectors and the user can only get rid of them by deleting.
+            held = sum(1 for d in db.list_documents() if d.status != DocStatus.FAILED)
+            if held >= settings.demo_max_documents:
+                raise ApiError(409, "demo.document_limit",
+                               f"Bản demo chỉ lưu tối đa {settings.demo_max_documents} tài liệu cùng lúc. "
+                               "Hãy xóa bớt một tài liệu rồi tải lên lại.")
 
         result = ingest_file(upload.filename, data, settings)  # extract + chunk: fast, so errors are immediate 4xx
         try:
@@ -906,3 +975,24 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+
+
+def server_address(environ: Mapping[str, str] = os.environ) -> tuple[str, int]:
+    """Host and port for `python -m app.main`. Render (and most hosts) pass the port in PORT.
+
+    The host defaults to loopback so that running this by hand never exposes the API to the network;
+    the Dockerfile sets HOST=0.0.0.0, which is what a container needs.
+    """
+    raw_port = environ.get("PORT") or "8000"
+    try:
+        port = int(raw_port)
+    except ValueError:
+        raise SystemExit(f"PORT must be an integer, got {raw_port!r}") from None
+    if not 1 <= port <= 65535:
+        raise SystemExit(f"PORT must be between 1 and 65535, got {port}")
+    return environ.get("HOST") or "127.0.0.1", port
+
+
+if __name__ == "__main__":
+    _host, _port = server_address()
+    uvicorn.run(app, host=_host, port=_port)

@@ -178,7 +178,8 @@ def step_qdrant(s: Settings, vectors: tuple[list[float], list[float]] | None) ->
     expected = cosine(doc_vec, query_vec)
 
     name = f"smoke_test_{uuid.uuid4().hex[:8]}"
-    client = QdrantClient(url=s.qdrant_url, timeout=10)
+    key = s.qdrant_api_key.get_secret_value() if s.qdrant_api_key else None
+    client = QdrantClient(url=s.qdrant_url, api_key=key, timeout=10)
     created = False
     try:
         logger.info("  Qdrant server version: %s", client.info().version)

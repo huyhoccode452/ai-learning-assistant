@@ -1,6 +1,7 @@
 # AI Learning Assistant (RAG)
 
 Document Q&A app: users upload PDF/DOCX/TXT, ask questions, get answers grounded in the documents with source citations. Also summary and quiz generation.
+![Demo](docs/demo.gif)
 
 ## Context
 - Owner is a final-year IT student building a portfolio project for AI Engineer interviews. They must understand and be able to defend every part.

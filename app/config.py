@@ -36,8 +36,10 @@ class Settings(BaseSettings):
     # Lower = faster and cheaper (measured with scripts/bench_llm.py, see docs/known_issues.md).
     llm_thinking_level: Literal["minimal", "low", "medium", "high"] | None = None
 
-    # Qdrant
+    # Qdrant. For Qdrant Cloud set QDRANT_URL to the cluster URL (https://<id>.<region>.cloud.qdrant.io:6333)
+    # and QDRANT_API_KEY; a local Qdrant needs no key.
     qdrant_url: str = "http://localhost:6333"
+    qdrant_api_key: SecretStr | None = None
     qdrant_collection: str = "documents"
 
     # Chunking / retrieval
@@ -49,9 +51,20 @@ class Settings(BaseSettings):
 
     # Uploads / storage
     max_upload_mb: int = Field(default=20, gt=0)
+    # Public demo. DEMO_MODE lowers the upload size (max_upload_mb becomes the smaller of the two values,
+    # see _apply_demo_mode) and caps how many documents the whole instance may hold (there are no accounts).
+    demo_mode: bool = False
+    demo_max_upload_mb: int = Field(default=5, gt=0)
+    demo_max_documents: int = Field(default=10, gt=0)
     sqlite_path: Path = Path("data/app.sqlite3")
     # Original files are stored here under generated names (never the user's file name).
     upload_dir: Path = Path("data/uploads")
+
+    # Abuse protection for the endpoints that call Gemini (chat, summary, quiz, upload). 0 = no limit.
+    daily_limit_per_ip: int = Field(default=0, ge=0)
+    # How many reverse proxies sit in front of the app (Render, Cloudflare...). 0 = use the socket address.
+    # Otherwise the client IP is the Nth entry from the RIGHT of X-Forwarded-For (the left ones are forgeable).
+    trusted_proxy_hops: int = Field(default=0, ge=0, le=5)
 
     @field_validator("sqlite_path", "upload_dir")
     @classmethod
@@ -65,6 +78,13 @@ class Settings(BaseSettings):
                 f"CHUNK_OVERLAP ({self.chunk_overlap}) must be smaller than "
                 f"CHUNK_SIZE ({self.chunk_size})"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _apply_demo_mode(self) -> "Settings":
+        # One place: the middleware, validate_upload and the UI-facing limit all read max_upload_mb.
+        if self.demo_mode:
+            self.max_upload_mb = min(self.max_upload_mb, self.demo_max_upload_mb)
         return self
 
     @property

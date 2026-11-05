@@ -20,5 +20,8 @@ RUN useradd --create-home --uid 1000 appuser \
 COPY --chown=appuser:appuser . .
 
 USER appuser
+ENV HOST=0.0.0.0 \
+    PORT=8000
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# python -m app.main reads HOST and PORT (Render sets PORT itself; 8000 is only the default).
+CMD ["python", "-m", "app.main"]
