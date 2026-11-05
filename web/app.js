@@ -165,11 +165,34 @@ function el(tag, opts, children) {
 }
 
 function badge(text, tone) {
-  return el("span", { className: "badge " + tone, text });
+  return el("span", { className: "badge badge-" + tone, text });
 }
 
 function box(text, tone) {
-  return el("div", { className: "box " + tone, text, attrs: { role: tone === "danger" ? "alert" : "status" } });
+  return el("div", { className: "alert alert-" + tone, text, attrs: { role: tone === "danger" ? "alert" : "status" } });
+}
+
+// A line made of segments joined by " · "; every segment is its own span so CSS can keep it on one line.
+function segmentsNode(tag, className, parts) {
+  const node = el(tag, { className });
+  parts.forEach((text, i) => {
+    if (i > 0) node.appendChild(document.createTextNode(" · "));
+    node.appendChild(el("span", { text }));
+  });
+  return node;
+}
+
+// Markdown for assistant answers and summaries. Falls back to plain text if markdown.js did not load.
+function renderRich(text, onCitation) {
+  const out = el("div", { className: "md" });
+  if (typeof window.renderMarkdown === "function") out.appendChild(window.renderMarkdown(text, { onCitation }));
+  else out.textContent = String(text === null || text === undefined ? "" : text);
+  return out;
+}
+
+// Table lookup by a key that comes from the server: own properties only ("constructor" must not hit Object.prototype).
+function lookup(table, key) {
+  return Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
 }
 
 function clear(node) {
@@ -178,6 +201,10 @@ function clear(node) {
 
 function pageText(page) {
   return page !== null && page !== undefined ? "trang " + page : "không có số trang";
+}
+
+function pageLabel(page) {
+  return page !== null && page !== undefined ? "Trang " + page : "Không có số trang";
 }
 
 function showNotice(tone, text) {
@@ -200,17 +227,17 @@ function readyDocs() {
 
 // ====================================================================== renderers: health + documents
 function setHealth(ok, degraded) {
-  const node = $("health");
+  let tone = "is-ok";
+  let text = "Hoạt động";
   if (!ok) {
-    node.textContent = "Mất kết nối";
-    node.className = "badge danger";
+    tone = "is-down";
+    text = "Mất kết nối";
   } else if (degraded) {
-    node.textContent = "Qdrant không kết nối";
-    node.className = "badge warning";
-  } else {
-    node.textContent = "Hoạt động";
-    node.className = "badge success";
+    tone = "is-degraded";
+    text = "Qdrant không kết nối";
   }
+  $("health").className = "status " + tone;
+  $("health-text").textContent = text;
   $("backend-down").hidden = ok;
 }
 
@@ -233,20 +260,30 @@ function docMeta(doc) {
   return bits.join(" · ");
 }
 
+function fileExt(name) {
+  const match = /\.([A-Za-z0-9]{1,5})$/.exec(name || "");
+  return match ? match[1].toUpperCase() : "FILE";
+}
+
 function renderDocuments() {
   const list = $("doc-list");
   clear(list);
   $("doc-empty").hidden = state.docs.length > 0;
   for (const doc of state.docs) {
-    const [label, tone] = STATUS_BADGE[doc.status] || [String(doc.status), "neutral"];
-    const item = el("li", { className: "doc-item" });
-    item.appendChild(el("div", { className: "doc-name", text: doc.filename }));
+    const [label, tone] = lookup(STATUS_BADGE, doc.status) || [String(doc.status), "neutral"];
     const meta = el("div", { className: "doc-meta" }, [badge(label, tone)]);
     const metaText = docMeta(doc);
-    if (metaText) meta.appendChild(el("span", { className: "caption", text: metaText }));
-    item.appendChild(meta);
+    if (metaText) meta.appendChild(el("span", { className: "doc-meta-text caption", text: metaText }));
+    const main = el("div", { className: "doc-main" }, [
+      el("span", { className: "doc-ext", text: fileExt(doc.filename) }),
+      el("div", { className: "doc-text" }, [
+        el("div", { className: "doc-name", text: doc.filename, attrs: { title: doc.filename } }),
+        meta,
+      ]),
+    ]);
+    const item = el("li", { className: "doc-item" }, [main]);
     if (doc.status === "failed") {
-      item.appendChild(el("div", { className: "caption", text: (doc.error_message || "Xử lý thất bại.") + " Hãy tải lại tệp để thử lại." }));
+      item.appendChild(el("div", { className: "doc-error caption", text: (doc.error_message || "Xử lý thất bại.") + " Hãy tải lại tệp để thử lại." }));
     }
     if (doc.status === "processing") {
       const since = state.processingSince.get(doc.doc_id);
@@ -256,20 +293,20 @@ function renderDocuments() {
     }
     if (state.confirmDoc === doc.doc_id) {
       const confirm = el("div", { className: "confirm" }, [box("Xóa tài liệu này cùng dữ liệu đã lập chỉ mục?", "warning")]);
-      const yes = el("button", { className: "btn danger", text: "Xác nhận xóa", attrs: { type: "button" } });
+      const yes = el("button", { className: "btn btn-danger btn-sm", text: "Xác nhận xóa", attrs: { type: "button" } });
       yes.addEventListener("click", () => deleteDocument(doc.doc_id));
-      const no = el("button", { className: "btn", text: "Hủy", attrs: { type: "button" } });
+      const no = el("button", { className: "btn btn-secondary btn-sm", text: "Hủy", attrs: { type: "button" } });
       no.addEventListener("click", () => { state.confirmDoc = null; renderDocuments(); });
       confirm.appendChild(el("div", { className: "item-actions" }, [yes, no]));
       item.appendChild(confirm);
     } else {
-      const del = el("button", { className: "btn", text: "Xóa", attrs: { type: "button" } });
+      const del = el("button", { className: "btn btn-ghost btn-sm doc-delete", text: "Xóa", attrs: { type: "button" } });
       if (doc.status === "processing") {
         del.disabled = true;
         del.setAttribute("title", "Không xóa được khi tài liệu đang xử lý");
       }
       del.addEventListener("click", () => { state.confirmDoc = doc.doc_id; renderDocuments(); });
-      item.appendChild(el("div", { className: "item-actions" }, [del]));
+      item.appendChild(el("div", { className: "doc-actions" }, [del]));
     }
     list.appendChild(item);
   }
@@ -303,8 +340,8 @@ function renderScope() {
       if (input.checked) state.checked.add(doc.doc_id); else state.checked.delete(doc.doc_id);
       updateChatAvailability();
     });
-    const label = el("label", { attrs: { for: "scope-" + i } }, [input, el("span", { text: doc.filename })]);
-    box_.appendChild(label);
+    const label = el("label", { attrs: { for: "scope-" + i } }, [input, el("span", { text: doc.filename, attrs: { title: doc.filename } })]);
+    box_.appendChild(el("div", { className: "scope-item" }, [label]));
   });
   updateChatAvailability();
 }
@@ -326,6 +363,24 @@ function updateChatAvailability() {
   $("question").disabled = Boolean(reason);
   $("send-btn").disabled = blocked;
   $("question").placeholder = reason || "Đặt câu hỏi về tài liệu đã chọn…";
+  syncEmptyState();
+}
+
+// Keeps the welcome screen in step with whether chat can be used right now.
+function syncEmptyState() {
+  const reason = disabledReason();
+  $("empty-sub").textContent = reason || "Chọn một câu gợi ý bên dưới hoặc tự đặt câu hỏi.";
+  for (const button of document.querySelectorAll("#suggestions .suggestion")) button.disabled = Boolean(reason) || state.asking;
+}
+
+// The textarea grows with its content (up to 6 lines) by changing `rows`, never inline style.
+function fitQuestion() {
+  const q = $("question");
+  q.rows = 1;
+  const css = getComputedStyle(q);
+  const lineHeight = parseFloat(css.lineHeight) || 24;
+  const padding = (parseFloat(css.paddingTop) || 0) + (parseFloat(css.paddingBottom) || 0);
+  q.rows = Math.min(6, Math.max(1, Math.round((q.scrollHeight - padding) / lineHeight)));
 }
 
 function renderDocSelects() {
@@ -413,7 +468,10 @@ function schedulePoll() {
 // ====================================================================== actions: upload + delete
 async function uploadFile() {
   const input = $("file-input");
+  const zone = $("dropzone");
+  if (zone.classList.contains("is-busy")) return; // one upload at a time
   const file = input.files && input.files[0];
+  input.value = ""; // so choosing the same file again fires "change" again; `file` stays valid
   if (!file) {
     showNotice("warning", "Hãy chọn một tệp PDF, DOCX hoặc TXT trước.");
     return;
@@ -427,14 +485,13 @@ async function uploadFile() {
     showNotice("danger", "Tệp «" + file.name + "» vượt quá " + MAX_UPLOAD_MB + " MB, nên chưa được gửi lên.");
     return;
   }
-  const button = $("upload-btn");
-  button.disabled = true;
+  zone.classList.add("is-busy");
+  input.disabled = true;
   showNotice("info", "Đang gửi tệp lên máy chủ…");
   try {
     const { status } = await api.upload(file);
     if (status === 200) showNotice("info", "«" + file.name + "» đã có sẵn và đã sẵn sàng, không cần tải lại.");
     else showNotice("success", "Đã nhận «" + file.name + "». Hệ thống đang xử lý ở nền; bạn có thể hỏi các tài liệu khác trong lúc chờ.");
-    input.value = "";
     state.pollStopped = false;
     // Give every processing document a fresh 180s window, so an old stuck one cannot stop polling for the new upload.
     state.processingSince.clear();
@@ -443,7 +500,8 @@ async function uploadFile() {
     showNotice("danger", "Không tải lên được «" + file.name + "»: " + err.message);
     if (err.kind === "unreachable") checkHealth();
   } finally {
-    button.disabled = false;
+    zone.classList.remove("is-busy");
+    input.disabled = false;
   }
 }
 
@@ -473,57 +531,114 @@ async function deleteDocument(docId) {
 
 // ====================================================================== renderers: chat + sources
 function sourceNode(source, idPrefix) {
-  const wrap = el("div", { className: "source", attrs: { id: idPrefix + source.number } });
   const head = el("div", { className: "source-head" }, [
-    el("strong", { text: "[" + source.number + "]" }),
-    el("span", { text: source.filename }),
-    el("span", { className: "caption", text: pageText(source.page) }),
-    el("span", { className: "caption mono", text: "điểm " + Number(source.score).toFixed(3) }),
+    el("span", { className: "source-num", text: String(source.number) }),
+    el("span", { className: "source-file", text: source.filename, attrs: { title: source.filename } }),
+    el("span", { className: "source-page", text: pageLabel(source.page) }),
     source.cited ? badge("Được trích dẫn", "success") : badge("Chỉ truy xuất", "neutral"),
   ]);
   if (source.document_exists === false) head.appendChild(badge("Tài liệu đã bị xóa", "danger"));
-  wrap.appendChild(head);
-  wrap.appendChild(el("p", { className: "excerpt", text: source.excerpt || "" }));
-  return wrap;
+  head.appendChild(el("span", { className: "source-score mono", text: Number(source.score).toFixed(3) }));
+  return el("div", { className: "source-card", attrs: { id: idPrefix + source.number } }, [
+    head,
+    el("p", { className: "source-excerpt", text: source.excerpt || "" }),
+  ]);
 }
 
 function highlightSource(details, node) {
   details.open = true;
-  for (const other of details.querySelectorAll(".source")) other.classList.remove("highlight");
-  node.classList.add("highlight");
+  for (const other of details.querySelectorAll(".source-card")) other.classList.remove("is-highlight");
+  node.classList.add("is-highlight");
   node.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  const focusTarget = node.querySelector("strong");
+  const focusTarget = node.querySelector(".source-num");
   if (focusTarget) {
     focusTarget.setAttribute("tabindex", "-1");
     focusTarget.focus({ preventScroll: true });
   }
 }
 
-// Turns "... [1] ... [2][3]" into text nodes and buttons, built from DOM nodes only.
-function answerNode(answer, sourceNodes, details) {
-  const out = el("div", { className: "text" });
-  const pattern = /\[(\d+)\]/g;
-  let last = 0;
-  let match;
-  while ((match = pattern.exec(answer)) !== null) {
-    const number = parseInt(match[1], 10);
-    const target = sourceNodes.get(number);
-    if (!target) continue; // not a known source: leave it as plain text
-    if (match.index > last) out.appendChild(document.createTextNode(answer.slice(last, match.index)));
-    const button = el("button", { className: "cite", text: "[" + number + "]", attrs: { type: "button", "aria-label": "Xem nguồn " + number } });
-    button.addEventListener("click", () => highlightSource(details, target));
-    out.appendChild(button);
-    last = match.index + match[0].length;
+// ---- citation pills with a popover (name, page, excerpt); [n] -> small superscript-style number
+let popoverCounter = 0;
+
+function closeCitations(except) {
+  // :focus-within keeps a popover visible, so focus must leave a pill that is being closed.
+  const active = document.activeElement;
+  if (active && active !== document.body && active.closest(".cite-wrap") && !(except && except.contains(active))) active.blur();
+  for (const wrap of document.querySelectorAll(".cite-wrap.is-open")) {
+    if (wrap === except) continue;
+    wrap.classList.remove("is-open");
+    const pill = wrap.querySelector(".cite-pill");
+    if (pill) pill.setAttribute("aria-expanded", "false");
   }
-  if (last < answer.length) out.appendChild(document.createTextNode(answer.slice(last)));
-  return out;
 }
 
-function latencyText(latency, usedFallback) {
-  if (!latency) return "";
-  const parts = ["nhúng câu hỏi " + Math.round(latency.embed_ms) + " ms", "tìm kiếm " + Math.round(latency.search_ms) + " ms"];
+// Picks .is-left / .is-right / .is-top only when the default position (centred, below) would leave the screen.
+function placePopover(wrap) {
+  const pop = wrap.querySelector(".cite-popover");
+  if (!pop) return;
+  pop.classList.remove("is-left", "is-right", "is-top");
+  if (window.matchMedia("(max-width: 599px)").matches) return; // phones use a bottom sheet
+  const rect = pop.getBoundingClientRect();
+  if (rect.width === 0) return; // not visible yet
+  const viewportWidth = document.documentElement.clientWidth;
+  if (rect.left < 8) pop.classList.add("is-left");
+  else if (rect.right > viewportWidth - 8) pop.classList.add("is-right");
+  const composerTop = $("chat-form").getBoundingClientRect().top;
+  const pillTop = wrap.getBoundingClientRect().top;
+  if (rect.bottom > composerTop - 8 && pillTop - rect.height > 64) pop.classList.add("is-top");
+}
+
+function citationNode(source, target, details) {
+  popoverCounter += 1;
+  const popId = "cite-pop-" + popoverCounter;
+  const label = "Nguồn " + source.number;
+  const pill = el("button", {
+    className: "cite-pill", text: String(source.number),
+    attrs: { type: "button", "aria-label": label, "aria-expanded": "false", "aria-controls": popId },
+  });
+  const jump = el("button", { className: "cite-pop-jump btn btn-ghost btn-sm", text: "Xem thẻ nguồn", attrs: { type: "button" } });
+  const pop = el("span", { className: "cite-popover", attrs: { id: popId, role: "dialog", "aria-label": label } }, [
+    el("span", { className: "cite-pop-head" }, [
+      el("span", { className: "cite-pop-file", text: source.filename }),
+      el("span", { className: "cite-pop-page", text: pageLabel(source.page) }),
+    ]),
+    el("span", { className: "cite-pop-excerpt", text: source.excerpt || "" }),
+    jump,
+  ]);
+  const wrap = el("span", { className: "cite-wrap" }, [pill, pop]);
+  pill.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const open = !wrap.classList.contains("is-open");
+    closeCitations(wrap);
+    wrap.classList.toggle("is-open", open);
+    pill.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) placePopover(wrap);
+    else pill.blur();
+  });
+  jump.addEventListener("click", () => {
+    closeCitations(null);
+    highlightSource(details, target);
+  });
+  wrap.addEventListener("mouseenter", () => placePopover(wrap));
+  wrap.addEventListener("focusin", () => placePopover(wrap));
+  return wrap;
+}
+
+// The answer is Markdown; "[n]" becomes a citation pill when n is a known source, otherwise it stays as text.
+function answerNode(answer, sourceNodes, details) {
+  return renderRich(answer, (number) => {
+    const known = sourceNodes.get(number);
+    return known ? citationNode(known.source, known.node, details) : null;
+  });
+}
+
+// Timing line; every segment is its own span so it never wraps in the middle of "mô hình 1.3 s".
+function latencyNode(latency, usedFallback) {
+  if (!latency) return null;
+  const parts = ["Thời gian: nhúng câu hỏi " + Math.round(latency.embed_ms) + " ms", "tìm kiếm " + Math.round(latency.search_ms) + " ms"];
   parts.push(usedFallback ? "không gọi mô hình" : "mô hình " + (latency.llm_ms / 1000).toFixed(1) + " s");
-  return "Thời gian: " + parts.join(" · ") + " · tổng " + (latency.total_ms / 1000).toFixed(1) + " s";
+  parts.push("tổng " + (latency.total_ms / 1000).toFixed(1) + " s");
+  return segmentsNode("p", "timing caption mono", parts);
 }
 
 function fallbackCaption(bestScore) {
@@ -536,11 +651,11 @@ let messageCounter = 0;
 function assistantNode(result, saved) {
   messageCounter += 1;
   const idPrefix = "src-" + messageCounter + "-";
-  const wrap = el("div", { className: "msg assistant" }, [el("div", { className: "msg-role", text: "Trợ lý" })]);
+  const wrap = el("div", { className: "msg msg-assistant" }, [el("div", { className: "msg-role", text: "Trợ lý" })]);
   if (result.used_fallback) {
-    wrap.appendChild(el("div", { className: "box info" }, [
-      el("strong", { text: "Không đủ bằng chứng trong tài liệu để trả lời." }),
-      el("div", { className: "text", text: result.answer }),
+    wrap.appendChild(el("div", { className: "fallback-card" }, [
+      el("div", { className: "fallback-title", text: "Không đủ bằng chứng trong tài liệu để trả lời." }),
+      renderRich(result.answer),
     ]));
     wrap.appendChild(el("p", { className: "caption", text: fallbackCaption(result.best_score) }));
   } else {
@@ -554,7 +669,7 @@ function assistantNode(result, saved) {
       }
       for (const source of sources) {
         const node = sourceNode(source, idPrefix);
-        nodes.set(source.number, node);
+        nodes.set(source.number, { source, node });
         details.appendChild(node);
       }
     }
@@ -562,28 +677,37 @@ function assistantNode(result, saved) {
     if (result.truncated) wrap.appendChild(box("Câu trả lời có thể đã bị cắt do giới hạn độ dài.", "warning"));
     if (sources.length) wrap.appendChild(details);
   }
-  const timing = latencyText(result.latency, result.used_fallback);
-  if (timing) wrap.appendChild(el("p", { className: "caption mono", text: timing }));
+  const timing = latencyNode(result.latency, result.used_fallback);
+  if (timing) wrap.appendChild(timing);
   if (saved === false) wrap.appendChild(box(SAVE_FAILED_TEXT, "warning"));
   return wrap;
 }
 
 function userNode(text) {
-  return el("div", { className: "msg user" }, [el("div", { className: "msg-role", text: "Bạn" }), el("div", { className: "text", text })]);
+  return el("div", { className: "msg msg-user" }, [
+    el("div", { className: "msg-bubble" }, [el("span", { className: "visually-hidden", text: "Bạn: " }), document.createTextNode(text)]),
+  ]);
+}
+
+function pendingNode() {
+  return el("div", { className: "msg msg-assistant is-pending" }, [
+    el("div", { className: "msg-role", text: "Trợ lý" }),
+    el("div", { className: "pending" }, [
+      el("span", { className: "typing-dots", attrs: { "aria-hidden": "true" } }, [el("span"), el("span"), el("span")]),
+      el("span", { className: "pending-text", text: "Đang tìm trong tài liệu và hỏi mô hình… (tối đa khoảng 60 giây)" }),
+    ]),
+  ]);
 }
 
 function scrollChatToEnd() {
-  const log = $("chat-log");
-  const last = log.lastElementChild;
-  if (last) last.scrollIntoView({ block: "nearest" });
+  const scroller = $("chat-scroll");
+  scroller.scrollTop = scroller.scrollHeight;
 }
 
 function renderEmptyChat() {
-  const log = $("chat-log");
-  clear(log);
-  const hint = box(disabledReason() || "Hãy đặt câu hỏi ở ô bên dưới. Câu trả lời sẽ kèm nguồn trích dẫn [n].", "info");
-  hint.classList.add("empty-hint");
-  log.appendChild(hint);
+  clear($("chat-log"));
+  $("empty-state").hidden = false;
+  syncEmptyState();
 }
 
 function warnAsking() {
@@ -607,9 +731,9 @@ async function sendQuestion(event) {
   state.asking = true;
   updateChatAvailability();
   const log = $("chat-log");
-  if (log.firstChild && log.firstChild.classList.contains("empty-hint")) clear(log);
+  $("empty-state").hidden = true;
   log.appendChild(userNode(question));
-  const pending = box("Đang tìm trong tài liệu và hỏi mô hình… (tối đa khoảng 60 giây)", "neutral");
+  const pending = pendingNode();
   log.appendChild(pending);
   scrollChatToEnd();
   const body = { question, doc_ids: docIds };
@@ -617,8 +741,11 @@ async function sendQuestion(event) {
   try {
     const { data } = await api.chat(body);
     pending.remove();
-    log.appendChild(assistantNode(data, data.saved));
+    const answer = assistantNode(data, data.saved);
+    log.appendChild(answer);
+    answer.scrollIntoView({ block: "start" }); // start reading at the top of a long answer
     input.value = "";
+    fitQuestion();
     if (data.conversation_id) state.conversationId = data.conversation_id;
     loadHistory(true);
   } catch (err) {
@@ -630,11 +757,11 @@ async function sendQuestion(event) {
     } else {
       log.appendChild(box(err.message, err.kind === "timeout" ? "warning" : "danger"));
     }
+    scrollChatToEnd();
     if (err.kind === "unreachable") checkHealth();
   } finally {
     state.asking = false;
     updateChatAvailability();
-    scrollChatToEnd();
   }
 }
 
@@ -642,10 +769,10 @@ async function sendQuestion(event) {
 function conversationMeta(info) {
   const when = info.updated_at ? new Date(info.updated_at) : null;
   const parts = [];
-  if (when && !Number.isNaN(when.getTime())) parts.push(when.toLocaleString("vi-VN"));
+  if (when && !Number.isNaN(when.getTime())) parts.push(when.toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" }));
   parts.push(info.message_count + " tin nhắn", (info.doc_ids || []).length + " tài liệu");
   if ((info.missing_doc_ids || []).length) parts.push(info.missing_doc_ids.length + " đã bị xóa");
-  return parts.join(" · ");
+  return parts;
 }
 
 function renderHistory() {
@@ -655,25 +782,35 @@ function renderHistory() {
   $("history-empty").hidden = items.length > 0;
   for (const info of items) {
     const isOpen = info.id === state.conversationId;
-    const title = el("div", { className: "doc-name", text: info.title || "(không có tiêu đề)" });
-    if (isOpen) title.appendChild(document.createTextNode(" "));
-    const item = el("li", { className: "history-item" }, [title]);
-    if (isOpen) title.appendChild(badge("Đang mở", "info"));
-    item.appendChild(el("div", { className: "caption", text: conversationMeta(info) }));
+    const titleText = info.title || "(không có tiêu đề)";
+    const title = el("div", { className: "history-title" }, [
+      el("span", { className: "history-title-text", text: titleText, attrs: { title: titleText } }),
+    ]);
+    if (isOpen) {
+      title.appendChild(document.createTextNode(" "));
+      title.appendChild(badge("Đang mở", "info"));
+    }
+    const main = el("div", { className: "history-main" }, [
+      title,
+      segmentsNode("div", "history-meta caption", conversationMeta(info)),
+    ]);
+    const item = el("li", { className: "history-item" + (isOpen ? " is-current" : "") }, [main]);
     if (state.confirmConv === info.id) {
-      const yes = el("button", { className: "btn danger", text: "Xác nhận xóa", attrs: { type: "button" } });
+      const yes = el("button", { className: "btn btn-danger btn-sm", text: "Xác nhận xóa", attrs: { type: "button" } });
       yes.addEventListener("click", () => deleteConversation(info));
-      const no = el("button", { className: "btn", text: "Hủy", attrs: { type: "button" } });
+      const no = el("button", { className: "btn btn-secondary btn-sm", text: "Hủy", attrs: { type: "button" } });
       no.addEventListener("click", () => { state.confirmConv = null; renderHistory(); });
-      item.appendChild(box("Xóa cuộc trò chuyện này khỏi lịch sử? Không thể hoàn tác.", "warning"));
-      item.appendChild(el("div", { className: "item-actions" }, [yes, no]));
+      item.appendChild(el("div", { className: "confirm" }, [
+        box("Xóa cuộc trò chuyện này khỏi lịch sử? Không thể hoàn tác.", "warning"),
+        el("div", { className: "item-actions" }, [yes, no]),
+      ]));
     } else {
-      const open = el("button", { className: "btn", text: "Mở", attrs: { type: "button" } });
+      const open = el("button", { className: "btn btn-ghost btn-sm", text: "Mở", attrs: { type: "button" } });
       open.disabled = isOpen;
       open.addEventListener("click", () => openConversation(info.id));
-      const del = el("button", { className: "btn", text: "Xóa", attrs: { type: "button" } });
+      const del = el("button", { className: "btn btn-ghost btn-sm", text: "Xóa", attrs: { type: "button" } });
       del.addEventListener("click", () => { state.confirmConv = info.id; renderHistory(); });
-      item.appendChild(el("div", { className: "item-actions" }, [open, del]));
+      item.appendChild(el("div", { className: "history-actions" }, [open, del]));
     }
     list.appendChild(item);
   }
@@ -699,6 +836,7 @@ async function openConversation(id) {
     const { data } = await api.getConversation(id);
     const log = $("chat-log");
     clear(log);
+    $("empty-state").hidden = true;
     if ((data.missing_doc_ids || []).length) {
       log.appendChild(box(data.missing_doc_ids.length + " tài liệu của cuộc trò chuyện này đã bị xóa khỏi hệ thống. Các nguồn của chúng vẫn được hiển thị (đánh dấu “Tài liệu đã bị xóa”) nhưng không còn tài liệu để đối chiếu.", "warning"));
     }
@@ -761,8 +899,8 @@ async function makeSummary(refresh) {
     const { data } = await api.summary(docId, style, refresh);
     clear(out);
     if (data.truncated && data.warning) out.appendChild(box(data.warning, "warning"));
-    out.appendChild(el("div", { className: "msg" }, [el("div", { className: "text", text: data.summary })]));
-    out.appendChild(el("p", { className: "caption", text: "Dùng " + data.num_chunks_used + "/" + data.num_chunks_total + " đoạn · " + costText(data.llm_calls, data.cached, data.latency_ms) }));
+    out.appendChild(el("div", { className: "summary-card" }, [renderRich(data.summary)]));
+    out.appendChild(el("p", { className: "caption summary-meta", text: "Dùng " + data.num_chunks_used + "/" + data.num_chunks_total + " đoạn · " + costText(data.llm_calls, data.cached, data.latency_ms) }));
   } catch (err) {
     clear(out);
     out.appendChild(box(err.message, err.kind === "timeout" ? "warning" : "danger"));
@@ -821,12 +959,12 @@ function renderQuiz(out, quiz) {
   const questions = quiz.questions || [];
   let checkedLabel = "không chạy bước xác minh";
   if (quiz.verify_requested) checkedLabel = quiz.verified ? "đã xác minh" : "chưa xác minh được";
-  out.appendChild(el("p", { className: "caption", text: questions.length + "/" + quiz.requested + " câu · " + checkedLabel + " · " + costText(quiz.llm_calls, quiz.cached, quiz.latency_ms) }));
+  out.appendChild(el("p", { className: "caption quiz-meta", text: questions.length + "/" + quiz.requested + " câu · " + checkedLabel + " · " + costText(quiz.llm_calls, quiz.cached, quiz.latency_ms) }));
   if (quiz.message) out.appendChild(box(quiz.message, "info"));
   for (const w of quiz.warnings || []) out.appendChild(box(w, "warning"));
   const dropped = Object.entries(quiz.dropped || {}).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
   if (dropped.length) {
-    out.appendChild(el("p", { className: "caption", text: "Các câu đã bị loại: " + dropped.map(([r, n]) => n + " câu " + (DROP_REASONS[r] || r)).join("; ") }));
+    out.appendChild(el("p", { className: "caption", text: "Các câu đã bị loại: " + dropped.map(([r, n]) => n + " câu " + (lookup(DROP_REASONS, r) || r)).join("; ") }));
   }
   for (const d of (quiz.verifier_decisions || []).filter((x) => x.kept === false)) {
     out.appendChild(el("p", { className: "caption", text: "Bị loại: " + d.question + " — " + d.reason }));
@@ -836,10 +974,10 @@ function renderQuiz(out, quiz) {
   const cards = [];
   questions.forEach((q, qi) => {
     const fieldset = el("fieldset");
-    fieldset.appendChild(el("legend", { text: "Câu " + q.id + ". " + q.question }));
+    fieldset.appendChild(el("legend", { className: "quiz-legend", text: "Câu " + q.id + ". " + q.question }));
     const inputs = q.options.map((option, oi) => {
       const input = el("input", { attrs: { type: "radio", name: "quiz-" + run + "-" + qi, value: String(oi) } });
-      fieldset.appendChild(el("label", {}, [input, el("span", { text: optionLabel(oi, option) })]));
+      fieldset.appendChild(el("label", { className: "quiz-option" }, [input, el("span", { text: optionLabel(oi, option) })]));
       return input;
     });
     const result = el("div", { className: "quiz-result" });
@@ -847,9 +985,9 @@ function renderQuiz(out, quiz) {
     cards.push({ q, inputs, result });
     form.appendChild(card);
   });
-  const score = el("h3");
-  const check = el("button", { className: "btn primary", text: "Kiểm tra", attrs: { type: "submit" } });
-  const retry = el("button", { className: "btn", text: "Làm lại bộ câu hỏi này", attrs: { type: "button" } });
+  const score = el("h3", { className: "quiz-score" });
+  const check = el("button", { className: "btn btn-primary", text: "Kiểm tra", attrs: { type: "submit" } });
+  const retry = el("button", { className: "btn btn-secondary", text: "Làm lại bộ câu hỏi này", attrs: { type: "button" } });
   retry.hidden = true;
   form.appendChild(el("div", { className: "row" }, [check, retry]));
   form.appendChild(score);
@@ -865,16 +1003,23 @@ function renderQuiz(out, quiz) {
       else if (chosen === key) { correct += 1; line = box("Đúng (" + OPTION_LETTERS[chosen] + ").", "success"); }
       else line = box("Sai: bạn chọn " + OPTION_LETTERS[chosen] + ", đáp án đúng là " + OPTION_LETTERS[key] + ".", "danger");
       c.result.appendChild(line);
-      c.result.appendChild(el("div", {}, [el("strong", { text: "Đáp án đúng: " }), el("span", { text: optionLabel(key, c.q.options[key]) })]));
-      c.result.appendChild(el("div", {}, [el("strong", { text: "Giải thích: " }), el("span", { text: c.q.explanation })]));
+      c.result.appendChild(el("div", { className: "quiz-answer" }, [el("strong", { text: "Đáp án đúng: " }), el("span", { text: optionLabel(key, c.q.options[key]) })]));
+      c.result.appendChild(el("div", { className: "quiz-explain" }, [el("strong", { text: "Giải thích: " }), el("span", { text: c.q.explanation })]));
       const src = c.q.source;
-      c.result.appendChild(el("div", { className: "caption", text: "Nguồn: " + src.filename + ", " + pageText(src.page) + " · " + (c.q.verified === true ? "Đã xác minh" : "Chưa xác minh") }));
-      c.result.appendChild(el("blockquote", { className: "excerpt", text: src.quote }));
-      for (const i of c.inputs) i.disabled = true;
+      c.result.appendChild(el("div", { className: "caption quiz-source", text: "Nguồn: " + src.filename + ", " + pageText(src.page) + " · " + (c.q.verified === true ? "Đã xác minh" : "Chưa xác minh") }));
+      c.result.appendChild(el("blockquote", { className: "quote", text: src.quote }));
+      c.inputs.forEach((input, oi) => {
+        input.disabled = true;
+        const optionLabelNode = input.parentElement;
+        if (oi === key) optionLabelNode.classList.add("is-correct");
+        else if (oi === chosen) optionLabelNode.classList.add("is-wrong");
+      });
     }
     score.textContent = "Điểm: " + correct + "/" + cards.length;
+    score.className = "quiz-score alert alert-" + (correct === cards.length ? "success" : correct === 0 ? "danger" : "info");
     check.disabled = true;
-    retry.hidden = false;
+    retry.hidden = false; // the retry button changes the page height, so scroll only after it is shown
+    score.scrollIntoView({ block: "nearest" });
   });
   retry.addEventListener("click", () => renderQuiz(out, quiz));
   out.appendChild(form);
@@ -884,7 +1029,7 @@ function renderQuiz(out, quiz) {
 function switchTab(name) {
   for (const tab of document.querySelectorAll(".tab")) {
     const active = tab.dataset.tab === name;
-    tab.classList.toggle("active", active);
+    tab.classList.toggle("is-active", active);
     tab.setAttribute("aria-selected", active ? "true" : "false");
     $("panel-" + tab.dataset.tab).hidden = !active;
   }
@@ -905,14 +1050,23 @@ function closeDrawer() {
 
 // ====================================================================== wiring + init
 function wire() {
-  $("upload-btn").addEventListener("click", uploadFile);
+  wireDropzone();
   $("chat-form").addEventListener("submit", sendQuestion);
+  $("question").addEventListener("input", fitQuestion);
   $("question").addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
       $("chat-form").requestSubmit();
     }
   });
+  for (const button of document.querySelectorAll("#suggestions .suggestion")) {
+    button.addEventListener("click", () => {
+      if (button.disabled || state.asking) return;
+      $("question").value = button.textContent.trim();
+      fitQuestion();
+      $("chat-form").requestSubmit();
+    });
+  }
   $("new-chat").addEventListener("click", resetConversation);
   $("history-more").addEventListener("click", () => loadHistory(false));
   $("summary-make").addEventListener("click", () => makeSummary(false));
@@ -931,7 +1085,39 @@ function wire() {
   $("open-drawer").addEventListener("click", openDrawer);
   $("close-drawer").addEventListener("click", closeDrawer);
   $("backdrop").addEventListener("click", closeDrawer);
-  document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeDrawer(); });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    closeCitations(null);
+    closeDrawer();
+  });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".cite-wrap")) closeCitations(null);
+  });
+}
+
+// Choosing a file or dropping it on the dropzone starts the same uploadFile() as before.
+function wireDropzone() {
+  const zone = $("dropzone");
+  const input = $("file-input");
+  const hasFiles = (event) => Boolean(event.dataTransfer && Array.from(event.dataTransfer.types || []).includes("Files"));
+  input.addEventListener("change", () => { if (input.files && input.files.length) uploadFile(); });
+  zone.addEventListener("dragenter", (event) => { if (hasFiles(event)) { event.preventDefault(); zone.classList.add("is-dragover"); } });
+  zone.addEventListener("dragover", (event) => { if (hasFiles(event)) { event.preventDefault(); zone.classList.add("is-dragover"); } });
+  zone.addEventListener("dragleave", (event) => { if (!zone.contains(event.relatedTarget)) zone.classList.remove("is-dragover"); });
+  zone.addEventListener("drop", (event) => {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    zone.classList.remove("is-dragover");
+    const files = event.dataTransfer.files;
+    if (!files || files.length === 0 || input.disabled) return;
+    input.files = files;
+    if (files.length > 1) showNotice("warning", "Mỗi lần chỉ tải lên một tệp; hệ thống dùng tệp đầu tiên («" + files[0].name + "»).");
+    uploadFile();
+  });
+  // A file dropped outside the dropzone must not make the browser navigate away from the app.
+  for (const type of ["dragover", "drop"]) {
+    window.addEventListener(type, (event) => { if (hasFiles(event)) event.preventDefault(); });
+  }
 }
 
 async function init() {
@@ -944,7 +1130,6 @@ async function init() {
     await loadHistory(true);
   }
   updateChatAvailability();
-  renderEmptyChat();
 }
 
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);

@@ -127,9 +127,15 @@ streamlit run frontend/streamlit_app.py       # 3. Streamlit UI on http://127.0.
 ### Web UI (`/ui`)
 
 Besides Streamlit, the API serves a plain HTML/CSS/JS interface (no build step, no Node) from `web/`. Once the API is running, open
-**<http://127.0.0.1:8000/ui/>**. It offers the same flows as the Streamlit app (documents, chat with citations, summary, quiz, history) and
-adapts to phone widths. Answers are shown as plain text (no Markdown rendering). The design spec is in
-[`docs/web_ui_design.md`](docs/web_ui_design.md).
+**<http://127.0.0.1:8000/ui/>**. It offers the same flows as the Streamlit app (documents, chat with citations, summary, quiz, history) with a
+calmer, NotebookLM-style design:
+
+- drag-and-drop upload, a welcome screen with clickable starter questions, answers rendered as Markdown (bold, lists, `code`);
+- citations are small superscript numbers; click or hover one to see the file, page and excerpt, and jump to the source card;
+- automatic dark mode (`prefers-color-scheme`), a drawer layout on phones, no horizontal scroll down to 360 px.
+
+Answers are rendered by a small hand-written Markdown subset (`web/markdown.js`) that only creates DOM elements and text nodes, never HTML
+strings or links. The design spec and the DOM contract between the files are in [`docs/web_ui_design.md`](docs/web_ui_design.md).
 
 ### Run the API with Docker
 
@@ -165,18 +171,25 @@ python evaluation/evaluate.py                 # re-run; real API calls are cache
 
 ## Screenshots
 
-Web UI (`/ui/`):
+Web UI (`/ui/`), captured from a real run:
 
-| Answer with sources | Insufficient evidence | Quiz results |
+| Answer with citations and sources | Citation popover | Insufficient evidence |
 |---|---|---|
-| ![Answer](docs/screenshots/web-04-answer-sources.png) | ![Fallback](docs/screenshots/web-05-fallback.png) | ![Quiz](docs/screenshots/web-08-quiz-results.png) |
+| ![Answer](docs/screenshots/web-02-answer.png) | ![Popover](docs/screenshots/web-03-popover.png) | ![Fallback](docs/screenshots/web-04-fallback.png) |
 
-| Summary | Saved conversation | Phone (390 px) |
+| Summary | Quiz results | Dark mode |
 |---|---|---|
-| ![Summary](docs/screenshots/web-06-summary.png) | ![History](docs/screenshots/web-09-history.png) | ![Mobile](docs/screenshots/web-12-mobile-chat.png) |
+| ![Summary](docs/screenshots/web-05-summary.png) | ![Quiz](docs/screenshots/web-06-quiz-results.png) | ![Dark](docs/screenshots/web-07-dark-answer.png) |
 
-Streamlit app: [`fallback-case.png`](docs/screenshots/fallback-case.png), [`12-quiz-results.png`](docs/screenshots/12-quiz-results.png),
-[`15-history-saved.png`](docs/screenshots/15-history-saved.png). All images are in [`docs/screenshots/`](docs/screenshots/).
+| Welcome screen (phone) | Chat (phone) | Document drawer (phone) |
+|---|---|---|
+| ![Mobile empty](docs/screenshots/web-08-mobile-empty.png) | ![Mobile chat](docs/screenshots/web-09-mobile-chat.png) | ![Drawer](docs/screenshots/web-11-mobile-drawer.png) |
+
+Also: [empty state](docs/screenshots/web-01-empty.png), [phone popover](docs/screenshots/web-10-mobile-popover.png),
+[phone quiz results](docs/screenshots/web-12-mobile-quiz-results.png), [XSS test](docs/screenshots/web-13-xss.png) (a file containing
+`<img src=x onerror=alert(1)>` is shown as plain text). Streamlit app: [`fallback-case.png`](docs/screenshots/fallback-case.png),
+[`12-quiz-results.png`](docs/screenshots/12-quiz-results.png), [`15-history-saved.png`](docs/screenshots/15-history-saved.png). All images are in
+[`docs/screenshots/`](docs/screenshots/).
 
 ## Limitations
 
@@ -188,7 +201,7 @@ The most important ones (the full list, with evidence, is in [`docs/known_issues
   handles them (KI-17).
 - **Citation checks are shallow**: the code verifies that a cited chunk exists, not that it supports the sentence (KI-20).
 - **Follow-up questions do not use earlier messages**: history is saved, not used as context (KI-29).
-- **Web UI**: answers are plain text (no Markdown); checked in one browser (Edge) with a read-only code review and an XSS test, not with automated browser tests (KI-30).
+- **Web UI**: checked in one browser (Edge) with read-only code reviews, visual QA on screenshots and an XSS test, not with automated browser tests; Markdown is a small subset (no tables or links) (KI-30).
 - **Free-tier limits**: daily LLM quota, occasional 500/503/504 errors and slow responses (KI-18).
 
 ## Possible improvements

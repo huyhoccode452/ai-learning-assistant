@@ -3,7 +3,7 @@
 Issues we are aware of and have deliberately not fixed yet. Each entry says what we
 verified, what we did not, and when to revisit. Update the status when one is resolved.
 
-Last updated after the web UI review (KI-30). Last `pytest -q` run: 1213 passed, 0 skipped (Qdrant was running), 3 deselected (integration tests that call the real Gemini API).
+Last updated after the web UI redesign (KI-30). Last `pytest -q` run: 1213 passed, 0 skipped (Qdrant was running), 3 deselected (integration tests that call the real Gemini API).
 
 | ID | Area | Issue | Status |
 |----|------|-------|--------|
@@ -36,7 +36,7 @@ Last updated after the web UI review (KI-30). Last `pytest -q` run: 1213 passed,
 | KI-27 | frontend | Polling, per-session chat history, UI-side timeout does not stop the server, English widget texts, one browser checked | Open, by design |
 | KI-28 | summary / quiz | LLM-verified, not proven: easy distractors, shared blind spots of the verifier, quota cost, no lock on identical requests | Open |
 | KI-29 | history | Saved chats are shared (no auth) and keep source excerpts of deleted documents; follow-ups do NOT use history | Open, by design |
-| KI-30 | web UI | Plain HTML/JS UI (`web/`): review fixed 6 medium bugs; limits remain (no Markdown, no a11y audit, one browser, no automated browser tests) | Open, by design |
+| KI-30 | web UI | Plain HTML/JS UI (`web/`): two review rounds fixed 6 medium bugs and 9 visual defects; limits remain (Markdown subset, one browser, no automated browser tests) | Open, by design |
 
 ## KI-01: Repeated headers/footers are indexed
 
@@ -447,14 +447,29 @@ Enter in an empty box leaves it empty, the mobile scenario above passes again on
 **Not verified after the fixes:** the race in (2), the 180 s polling window in (1) and focus retention in (5) need a slow upload or a slow reply; no
 browser test reproduces them. The Docker image must be rebuilt (`docker compose up -d --build api`) to pick up changes in `web/`.
 
+**Redesign (2026-11-05).** The UI was rebuilt (NotebookLM-style: tokens + dark mode, dropzone, welcome screen, Markdown answers, citation
+pills with a popover, compact source cards). Work was split by file with a DOM contract in `docs/web_ui_design.md`: `web/markdown.js` (68
+real-browser cases incl. 7 attack strings, 200 KB adversarial inputs rendered in < 100 ms), `web/styles.css` + `web/index.html`, and `web/app.js`.
+Checked after the redesign: a read-only security scan of the three scripts (no `innerHTML`-style sink, every server string reaches the DOM through
+`textContent`/`createTextNode`/`renderMarkdown`, no `href`/`src`/`style` from data; one robustness fix: table lookups with server keys now use own
+properties only), two visual-QA rounds on screenshots at 1440/390/360 px in light and dark mode (round 1: 9 defects, round 2: 7 of 9 confirmed fixed,
+then the quiz score scroll, history row height, fallback-card corners and segmented control were fixed and re-measured), and an end-to-end XSS run on the
+new UI (a TXT with `<img src=x onerror=alert(1)>`, `**<script>…**`, a `javascript:` link and an `<a>` tag: 0 dialogs, 0 `img`/`a` elements, 0 `on*`
+or `style` attributes, the raw text is visible; the test document was deleted afterwards). `/favicon.ico` 404 is gone (inline SVG favicon; the CSP
+gained `img-src 'self' data:`). Upload now starts as soon as a file is chosen or dropped (there is no separate upload button).
+
+**Not verified after the last CSS/JS tweaks:** the fixed history-row layout and the segmented control on 390 px were only measured/seen in the
+final screenshots, not re-reviewed by a second agent; the race fixes (M1/M2/M5 above) and the 180 s polling window still have no browser test;
+real touch devices and iOS Safari were never tested (Edge with touch emulation only).
+
 **Known limits, not fixed.**
-- Answers and summaries are plain text with `white-space: pre-wrap`; `**bold**` and lists are not rendered (by design, KI-19 style safety).
+- Markdown is a subset (paragraphs, `**bold**`, `*italic*`, `code`, fenced code, headings, bullet/numbered lists with one nested level, `[n]` citations). Tables, quotes, images and links are shown as plain text, `_italic_` is not supported (it would break identifiers such as `random_page_cost`), `[1, 2]` is not a citation, and a numbered list always restarts at 1.
 - The CSP is a `<meta>` tag: it cannot set `frame-ancestors`, and no `X-Frame-Options` header is sent (clickjacking is not covered).
-- `/favicon.ico` returns 404 (one console error per page load).
 - The health banner clears only via "Thử kết nối lại"; a successful poll does not clear it.
 - `doc_ids` is not capped at 50 on the client (more than 50 ticked documents gives a generic validation error); `0`/negative page numbers
   and an empty question count are silently treated as "no limit"/5; a summary `warning` is shown only when `truncated` is true.
-- `.cite` buttons are 28 px high (spec asks for 40 px touch targets); tabs have no arrow-key navigation; drawer has no focus trap.
+- Citation pills are 18 px high on phones (their hit area is enlarged with a pseudo-element, not measured on a real device); tabs have no arrow-key navigation; the drawer has no focus trap; the phone popover has no close button (tap outside or Esc).
+- History rows are 76-160 px tall in the 300 px sidebar (titles wrap to 2 lines, actions on the right); there is no search or rename.
 - Out-of-order `GET /documents` responses can briefly show an older list; the response body read has no separate timeout.
 - Upload limit `MAX_UPLOAD_MB = 20` is a constant in `app.js`; it must equal the backend setting (the server still enforces it).
 - Same sharing limits as the API: no authentication (KI-23), history shared (KI-29).

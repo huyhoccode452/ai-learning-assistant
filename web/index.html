@@ -3,21 +3,30 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
-  <title>AI Learning Assistant</title>
+  <meta name="color-scheme" content="light dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>AI Learning Assistant - Hỏi đáp, tóm tắt và trắc nghiệm từ tài liệu</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%233F5EFB'/%3E%3Cpath d='M7 9.5c3-1.1 6.2-.2 9 1.8 2.8-2 6-2.9 9-1.8v13c-3-1.1-6.2-.2-9 1.8-2.8-2-6-2.9-9-1.8z' fill='white'/%3E%3Cpath d='M16 11.3v13' stroke='%233F5EFB' stroke-width='1.6'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
+  <script src="markdown.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
   <header class="topbar">
-    <button type="button" id="open-drawer" class="btn drawer-toggle">Tài liệu</button>
-    <h1>AI Learning Assistant</h1>
-    <span id="health" class="badge neutral" role="status">Đang kiểm tra…</span>
+    <button type="button" id="open-drawer" class="btn btn-ghost drawer-toggle">☰ Tài liệu</button>
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">✦</span>
+      <h1 class="brand-name">AI Learning Assistant</h1>
+    </div>
+    <span id="health" class="status is-checking" role="status">
+      <span class="status-dot" aria-hidden="true"></span>
+      <span id="health-text" class="status-text">Đang kiểm tra…</span>
+    </span>
   </header>
 
-  <div id="backend-down" class="banner danger" hidden>
+  <div id="backend-down" class="banner" hidden>
     <span id="backend-down-text">Không kết nối được tới máy chủ API.</span>
-    <button type="button" id="retry-health" class="btn">Thử kết nối lại</button>
+    <button type="button" id="retry-health" class="btn btn-secondary btn-sm">Thử kết nối lại</button>
   </div>
 
   <div id="backdrop" class="backdrop" hidden></div>
@@ -25,93 +34,134 @@
   <div class="layout">
     <aside id="sidebar" class="sidebar" aria-label="Tài liệu và lịch sử">
       <div class="sidebar-head">
-        <h2>Tài liệu</h2>
-        <button type="button" id="close-drawer" class="btn drawer-toggle">Đóng</button>
+        <button type="button" id="close-drawer" class="btn btn-ghost btn-sm drawer-toggle">Đóng</button>
       </div>
 
-      <section class="card">
-        <label for="file-input" class="label">Tải tài liệu lên (PDF, DOCX, TXT)</label>
-        <input id="file-input" type="file" accept=".pdf,.docx,.txt">
-        <p class="caption" id="upload-hint">Tối đa 20 MB. Tài liệu được xử lý ở nền; hãy đợi trạng thái “Sẵn sàng”.</p>
-        <button type="button" id="upload-btn" class="btn primary">Tải lên</button>
-      </section>
+      <section class="side-section" aria-labelledby="side-docs-title">
+        <div class="side-heading">
+          <h2 class="side-title" id="side-docs-title">Tài liệu</h2>
+        </div>
 
-      <div id="notice" class="notice" aria-live="polite"></div>
+        <label id="dropzone" class="dropzone" for="file-input">
+          <span class="dropzone-icon" aria-hidden="true">↑</span>
+          <span class="dropzone-title">Kéo thả tệp vào đây hoặc bấm để chọn</span>
+          <span class="dropzone-hint">PDF, DOCX, TXT · tối đa 20 MB</span>
+          <input id="file-input" class="visually-hidden" type="file" accept=".pdf,.docx,.txt">
+        </label>
 
-      <section>
+        <div id="notice" class="notice" aria-live="polite"></div>
+
         <ul id="doc-list" class="doc-list"></ul>
-        <p id="doc-empty" class="caption" hidden>Chưa có tài liệu nào.</p>
+        <p id="doc-empty" class="side-empty" hidden>Chưa có tài liệu nào.</p>
         <div id="poll-info" class="caption"></div>
-        <button type="button" id="recheck" class="btn" hidden>Kiểm tra lại</button>
+        <button type="button" id="recheck" class="btn btn-secondary btn-sm" hidden>Kiểm tra lại</button>
+
+        <h3 class="side-subtitle">Hỏi trong</h3>
+        <div id="scope-list" class="scope-list"></div>
+        <p id="scope-empty" class="side-empty">Chưa có tài liệu sẵn sàng.</p>
       </section>
 
-      <section class="card">
-        <h3>Hỏi trong các tài liệu</h3>
-        <div id="scope-list"></div>
-        <p id="scope-empty" class="caption">Chưa có tài liệu sẵn sàng.</p>
-        <button type="button" id="new-chat" class="btn">Cuộc trò chuyện mới</button>
-        <p class="caption">“Cuộc trò chuyện mới” chỉ làm sạch màn hình; bản đã lưu vẫn nằm trong Lịch sử.</p>
-      </section>
-
-      <section>
-        <h3>Lịch sử</h3>
-        <p class="caption">Các cuộc trò chuyện được lưu trên máy chủ (không có đăng nhập nên mọi người dùng chung một lịch sử). Xóa tài liệu không xóa lịch sử.</p>
+      <section class="side-section" aria-labelledby="side-history-title">
+        <div class="side-heading">
+          <h2 class="side-title" id="side-history-title">Lịch sử</h2>
+          <button type="button" id="new-chat" class="btn btn-secondary btn-sm">+ Cuộc trò chuyện mới</button>
+        </div>
         <ul id="history-list" class="history-list"></ul>
-        <p id="history-empty" class="caption" hidden>Chưa có cuộc trò chuyện nào được lưu.</p>
-        <button type="button" id="history-more" class="btn" hidden>Xem thêm</button>
+        <p id="history-empty" class="side-empty" hidden>Chưa có cuộc trò chuyện nào được lưu.</p>
+        <button type="button" id="history-more" class="btn btn-ghost btn-sm" hidden>Xem thêm</button>
       </section>
 
-      <p class="caption">Bản demo chạy cục bộ: không có đăng nhập, mọi người truy cập đều thấy cùng một bộ tài liệu và cùng một lịch sử.</p>
+      <p class="side-foot">Bản demo chạy cục bộ, không có đăng nhập: mọi người dùng chung một bộ tài liệu và một lịch sử.</p>
     </aside>
 
     <main class="main">
       <div class="tabs" role="tablist" aria-label="Chức năng">
-        <button type="button" role="tab" id="tab-chat" class="tab active" aria-selected="true" aria-controls="panel-chat" data-tab="chat">Hỏi đáp</button>
+        <button type="button" role="tab" id="tab-chat" class="tab is-active" aria-selected="true" aria-controls="panel-chat" data-tab="chat">Hỏi đáp</button>
         <button type="button" role="tab" id="tab-summary" class="tab" aria-selected="false" aria-controls="panel-summary" data-tab="summary">Tóm tắt</button>
         <button type="button" role="tab" id="tab-quiz" class="tab" aria-selected="false" aria-controls="panel-quiz" data-tab="quiz">Trắc nghiệm</button>
       </div>
 
       <section id="panel-chat" class="panel chat-panel" role="tabpanel" aria-labelledby="tab-chat">
-        <p class="caption" id="followup-note">Lưu ý: mỗi câu hỏi được trả lời độc lập. Hệ thống không dùng các tin nhắn trước để hiểu câu hỏi nối tiếp (ví dụ “còn cái đó thì sao?”), nên hãy nêu rõ chủ đề trong từng câu hỏi. Lịch sử chỉ để xem lại.</p>
-        <div id="chat-log" class="chat-log" aria-live="polite"></div>
-        <form id="chat-form" class="chat-form">
-          <label for="question" class="visually-hidden">Câu hỏi</label>
-          <textarea id="question" rows="2" maxlength="2000" placeholder="Đặt câu hỏi về tài liệu đã chọn…"></textarea>
-          <button type="submit" id="send-btn" class="btn primary">Gửi</button>
-        </form>
+        <div id="chat-scroll" class="chat-scroll">
+          <div class="chat-inner">
+            <section id="empty-state" class="empty-state">
+              <span class="empty-mark" aria-hidden="true">✦</span>
+              <h2 class="empty-title">Hỏi bất cứ điều gì về tài liệu của bạn</h2>
+              <p id="empty-sub" class="empty-sub">Hãy tải lên một tài liệu và đợi trạng thái “Sẵn sàng”</p>
+              <div id="suggestions" class="suggestions">
+                <button type="button" class="suggestion">Tài liệu này nói về chủ đề chính nào?</button>
+                <button type="button" class="suggestion">Tóm tắt các ý chính của tài liệu.</button>
+                <button type="button" class="suggestion">Liệt kê các khái niệm quan trọng và định nghĩa của chúng.</button>
+                <button type="button" class="suggestion">Có những lưu ý hoặc hạn chế nào được nhắc đến?</button>
+              </div>
+            </section>
+            <div id="chat-log" class="chat-log" aria-live="polite"></div>
+          </div>
+        </div>
+
+        <div class="composer">
+          <form id="chat-form" class="composer-box">
+            <label for="question" class="visually-hidden">Câu hỏi</label>
+            <textarea id="question" rows="1" maxlength="2000" placeholder="Đặt câu hỏi về tài liệu đã chọn…"></textarea>
+            <button type="submit" id="send-btn" class="btn btn-primary btn-send">Gửi</button>
+          </form>
+          <p id="followup-note" class="note" title="Hệ thống không dùng các tin nhắn trước để hiểu câu hỏi nối tiếp (ví dụ “còn cái đó thì sao?”), nên hãy nêu rõ chủ đề trong từng câu hỏi. Lịch sử chỉ để xem lại.">
+            <span class="note-icon" aria-hidden="true">i</span>
+            <span class="note-text">Mỗi câu hỏi được trả lời độc lập; hãy nêu rõ chủ đề.</span>
+          </p>
+        </div>
       </section>
 
       <section id="panel-summary" class="panel" role="tabpanel" aria-labelledby="tab-summary" hidden>
-        <label for="summary-doc" class="label">Tài liệu</label>
-        <select id="summary-doc"></select>
-        <fieldset class="radios">
-          <legend class="label">Kiểu tóm tắt</legend>
-          <label><input type="radio" name="summary-style" value="short" checked> Ngắn gọn</label>
-          <label><input type="radio" name="summary-style" value="detailed"> Chi tiết</label>
-        </fieldset>
-        <div class="row">
-          <button type="button" id="summary-make" class="btn primary">Tạo tóm tắt</button>
-          <button type="button" id="summary-again" class="btn" title="Tốn thêm lượt gọi mô hình">Tạo lại (bỏ qua kết quả đã lưu)</button>
+        <div class="panel-inner">
+          <div class="field">
+            <label for="summary-doc" class="label">Tài liệu</label>
+            <select id="summary-doc"></select>
+          </div>
+          <fieldset class="segmented">
+            <legend class="label">Kiểu tóm tắt</legend>
+            <label class="segment"><input type="radio" name="summary-style" value="short" checked><span>Ngắn gọn</span></label>
+            <label class="segment"><input type="radio" name="summary-style" value="detailed"><span>Chi tiết</span></label>
+          </fieldset>
+          <div class="row">
+            <button type="button" id="summary-make" class="btn btn-primary">Tạo tóm tắt</button>
+            <button type="button" id="summary-again" class="btn btn-secondary" title="Tốn thêm lượt gọi mô hình">Tạo lại (bỏ qua kết quả đã lưu)</button>
+          </div>
+          <div id="summary-out" aria-live="polite"></div>
         </div>
-        <div id="summary-out" aria-live="polite"></div>
       </section>
 
       <section id="panel-quiz" class="panel" role="tabpanel" aria-labelledby="tab-quiz" hidden>
-        <label for="quiz-doc" class="label">Tài liệu</label>
-        <select id="quiz-doc"></select>
-        <div class="grid3">
-          <div><label for="quiz-count" class="label">Số câu hỏi</label><input id="quiz-count" type="number" min="1" max="10" value="5"></div>
-          <div><label for="quiz-from" class="label">Từ trang (trống = không giới hạn)</label><input id="quiz-from" type="number" min="1"></div>
-          <div><label for="quiz-to" class="label">Đến trang (trống = không giới hạn)</label><input id="quiz-to" type="number" min="1"></div>
+        <div class="panel-inner">
+          <div class="field">
+            <label for="quiz-doc" class="label">Tài liệu</label>
+            <select id="quiz-doc"></select>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="quiz-count" class="label">Số câu hỏi</label>
+              <input id="quiz-count" type="number" min="1" max="10" value="5">
+            </div>
+            <div class="field">
+              <label for="quiz-from" class="label">Từ trang</label>
+              <input id="quiz-from" type="number" min="1" placeholder="Không giới hạn">
+            </div>
+            <div class="field">
+              <label for="quiz-to" class="label">Đến trang</label>
+              <input id="quiz-to" type="number" min="1" placeholder="Không giới hạn">
+            </div>
+          </div>
+          <div class="field">
+            <label for="quiz-topic" class="label">Chủ đề (tùy chọn)</label>
+            <input id="quiz-topic" type="text" maxlength="200" placeholder="Ví dụ: replication và sao lưu">
+          </div>
+          <label class="check"><input id="quiz-verify" type="checkbox" checked><span>Kiểm tra lại từng câu bằng một lần gọi mô hình nữa (chậm hơn, ít câu sai hơn)</span></label>
+          <div class="row">
+            <button type="button" id="quiz-make" class="btn btn-primary">Tạo bộ câu hỏi</button>
+            <button type="button" id="quiz-new" class="btn btn-secondary" title="Tốn thêm lượt gọi mô hình">Tạo bộ mới (bỏ qua kết quả đã lưu)</button>
+          </div>
+          <div id="quiz-out" aria-live="polite"></div>
         </div>
-        <label for="quiz-topic" class="label">Chủ đề (tùy chọn)</label>
-        <input id="quiz-topic" type="text" maxlength="200" placeholder="Ví dụ: replication và sao lưu">
-        <label class="check"><input id="quiz-verify" type="checkbox" checked> Kiểm tra lại từng câu bằng một lần gọi mô hình nữa (chậm hơn, ít câu sai hơn)</label>
-        <div class="row">
-          <button type="button" id="quiz-make" class="btn primary">Tạo bộ câu hỏi</button>
-          <button type="button" id="quiz-new" class="btn" title="Tốn thêm lượt gọi mô hình">Tạo bộ mới (bỏ qua kết quả đã lưu)</button>
-        </div>
-        <div id="quiz-out" aria-live="polite"></div>
       </section>
     </main>
   </div>
