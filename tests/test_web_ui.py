@@ -62,3 +62,26 @@ def test_app_js_has_no_dangerous_sinks() -> None:
     for sink in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function"):
         assert sink not in js, f"forbidden sink in app.js: {sink}"
     assert not re.search(r"setTimeout\(\s*[\"'`]", js), "string setTimeout"
+
+
+@pytest.mark.parametrize("path", ["/ui/../.env", "/ui/%2e%2e/.env", "/ui/..%2f..%2f.env", "/ui/%2e%2e%2fapp/main.py"])
+def test_ui_mount_does_not_expose_files_outside_web(client: TestClient, path: str) -> None:
+    response = client.get(path)
+    assert response.status_code == 404
+    assert "GEMINI_API_KEY" not in response.text and "create_app" not in response.text
+
+
+def test_index_csp_is_exact() -> None:
+    html = (WEB / "index.html").read_text(encoding="utf-8")
+    csp = "default-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    assert f'http-equiv="Content-Security-Policy" content="{csp}"' in html
+
+
+def test_app_js_keeps_review_fixes() -> None:
+    """Cheap guards for bugs found in the web UI review (KI-30); real behaviour was checked in a browser."""
+    js = (WEB / "app.js").read_text(encoding="utf-8")
+    assert "Math.min(100" in js, "history reload must stay within the API limit of 100"
+    assert "state.busy.has(id)" in js, "re-rendering must not re-enable buttons with a request in flight"
+    assert 'classList.contains("empty-hint")' in js, "only the empty-chat hint may be cleared on send"
+    assert "state.processingSince.clear()" in js, "a new upload must get a fresh 180s polling window"
+    assert js.count("if (state.asking) { warnAsking(); return; }") == 2, "no chat switching while a reply is pending"

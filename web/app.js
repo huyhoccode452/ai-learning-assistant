@@ -144,6 +144,8 @@ const state = {
   confirmDoc: null,
   conversationId: null,
   asking: false,
+  busy: new Set(), // ids of summary/quiz buttons with a request in flight
+  docsSig: "", // signature of what the document list last rendered (skip identical re-renders)
   history: { items: [], total: 0, shown: 0 },
   confirmConv: null,
   quizRun: 0,
@@ -337,7 +339,7 @@ function renderDocSelects() {
     select.disabled = ready.length === 0;
   }
   const none = readyDocs().length === 0;
-  for (const id of ["summary-make", "summary-again", "quiz-make", "quiz-new"]) $(id).disabled = none;
+  for (const id of ["summary-make", "summary-again", "quiz-make", "quiz-new"]) $(id).disabled = none || state.busy.has(id);
 }
 
 function syncDocState() {
@@ -366,7 +368,14 @@ async function refreshDocs() {
     if (!Array.isArray(data)) throw new ApiError("bad_response", "Máy chủ trả về dữ liệu không đúng định dạng. Hãy thử lại sau.");
     state.docs = data;
     syncDocState();
-    renderDocuments();
+    // Re-render only when something visible changed, so keyboard focus and open <select> popups survive the 2s poll.
+    const now = Date.now();
+    const slow = data.filter((d) => d.status === "processing" && now - (state.processingSince.get(d.doc_id) || now) > SLOW_AFTER_MS).map((d) => d.doc_id);
+    const sig = JSON.stringify([data, slow]);
+    if (sig !== state.docsSig) {
+      state.docsSig = sig;
+      renderDocuments();
+    }
     schedulePoll();
     return true;
   } catch (err) {
@@ -427,6 +436,8 @@ async function uploadFile() {
     else showNotice("success", "Đã nhận «" + file.name + "». Hệ thống đang xử lý ở nền; bạn có thể hỏi các tài liệu khác trong lúc chờ.");
     input.value = "";
     state.pollStopped = false;
+    // Give every processing document a fresh 180s window, so an old stuck one cannot stop polling for the new upload.
+    state.processingSince.clear();
     await refreshDocsKeepNotice();
   } catch (err) {
     showNotice("danger", "Không tải lên được «" + file.name + "»: " + err.message);
@@ -570,10 +581,17 @@ function scrollChatToEnd() {
 function renderEmptyChat() {
   const log = $("chat-log");
   clear(log);
-  log.appendChild(box(disabledReason() || "Hãy đặt câu hỏi ở ô bên dưới. Câu trả lời sẽ kèm nguồn trích dẫn [n].", "info"));
+  const hint = box(disabledReason() || "Hãy đặt câu hỏi ở ô bên dưới. Câu trả lời sẽ kèm nguồn trích dẫn [n].", "info");
+  hint.classList.add("empty-hint");
+  log.appendChild(hint);
+}
+
+function warnAsking() {
+  showNotice("warning", "Đang chờ câu trả lời. Hãy đợi xong rồi mới đổi cuộc trò chuyện.");
 }
 
 function resetConversation() {
+  if (state.asking) { warnAsking(); return; }
   state.conversationId = null;
   renderEmptyChat();
   renderHistory();
@@ -589,7 +607,7 @@ async function sendQuestion(event) {
   state.asking = true;
   updateChatAvailability();
   const log = $("chat-log");
-  if (log.firstChild && log.firstChild.classList.contains("box")) clear(log);
+  if (log.firstChild && log.firstChild.classList.contains("empty-hint")) clear(log);
   log.appendChild(userNode(question));
   const pending = box("Đang tìm trong tài liệu và hỏi mô hình… (tối đa khoảng 60 giây)", "neutral");
   log.appendChild(pending);
@@ -663,7 +681,7 @@ function renderHistory() {
 }
 
 async function loadHistory(reset) {
-  const limit = reset ? Math.max(HISTORY_PAGE, state.history.items.length) : HISTORY_PAGE;
+  const limit = reset ? Math.min(100, Math.max(HISTORY_PAGE, state.history.items.length)) : HISTORY_PAGE; // server allows 1-100
   const offset = reset ? 0 : state.history.items.length;
   try {
     const { data } = await api.listConversations(limit, offset);
@@ -671,12 +689,12 @@ async function loadHistory(reset) {
     state.history.total = data.total;
     renderHistory();
   } catch (err) {
-    clear($("history-list"));
     showNotice("danger", "Không tải được lịch sử: " + err.message);
   }
 }
 
 async function openConversation(id) {
+  if (state.asking) { warnAsking(); return; }
   try {
     const { data } = await api.getConversation(id);
     const log = $("chat-log");
@@ -725,7 +743,10 @@ function costText(calls, cached, latencyMs) {
 }
 
 function setBusy(buttons, busy) {
-  for (const id of buttons) $(id).disabled = busy || readyDocs().length === 0;
+  for (const id of buttons) {
+    if (busy) state.busy.add(id); else state.busy.delete(id);
+    $(id).disabled = busy || readyDocs().length === 0;
+  }
 }
 
 async function makeSummary(refresh) {
@@ -876,8 +897,10 @@ function openDrawer() {
 }
 
 function closeDrawer() {
+  const wasOpen = document.body.classList.contains("drawer-open");
   document.body.classList.remove("drawer-open");
   $("backdrop").hidden = true;
+  if (wasOpen) $("open-drawer").focus();
 }
 
 // ====================================================================== wiring + init
@@ -885,7 +908,10 @@ function wire() {
   $("upload-btn").addEventListener("click", uploadFile);
   $("chat-form").addEventListener("submit", sendQuestion);
   $("question").addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) $("chat-form").requestSubmit();
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      $("chat-form").requestSubmit();
+    }
   });
   $("new-chat").addEventListener("click", resetConversation);
   $("history-more").addEventListener("click", () => loadHistory(false));

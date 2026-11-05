@@ -121,8 +121,21 @@ Start the three parts, each in its own terminal (from the project root, with the
 ```powershell
 docker compose up -d                          # 1. Qdrant on http://localhost:6333
 uvicorn app.main:app --reload                 # 2. API on http://127.0.0.1:8000 (docs at /docs)
-streamlit run frontend/streamlit_app.py       # 3. UI on http://127.0.0.1:8501
+streamlit run frontend/streamlit_app.py       # 3. Streamlit UI on http://127.0.0.1:8501 (optional)
 ```
+
+### Web UI (`/ui`)
+
+Besides Streamlit, the API serves a plain HTML/CSS/JS interface (no build step, no Node) from `web/`. Once the API is running, open
+**<http://127.0.0.1:8000/ui/>**. It offers the same flows as the Streamlit app (documents, chat with citations, summary, quiz, history) and
+adapts to phone widths. Answers are shown as plain text (no Markdown rendering). The design spec is in
+[`docs/web_ui_design.md`](docs/web_ui_design.md).
+
+### Run the API with Docker
+
+`docker compose up -d --build` starts Qdrant **and** the API container (port 8000, with `/ui/`); `.env` supplies the Gemini key and
+model names, and `./data` is mounted for uploads and SQLite. Use it instead of the `uvicorn` line above (both listen on port 8000). After
+changing `web/` or `app/`, rebuild with `docker compose up -d --build api`.
 
 Try it with the sample document `data/samples/postgresql_performance_guide_vi.pdf`.
 
@@ -152,11 +165,18 @@ python evaluation/evaluate.py                 # re-run; real API calls are cache
 
 ## Screenshots
 
-| Insufficient evidence | Quiz | Conversation history |
-|---|---|---|
-| ![Fallback](docs/screenshots/fallback-case.png) | ![Quiz](docs/screenshots/12-quiz-results.png) | ![History](docs/screenshots/15-history-saved.png) |
+Web UI (`/ui/`):
 
-More in [`docs/screenshots/`](docs/screenshots/).
+| Answer with sources | Insufficient evidence | Quiz results |
+|---|---|---|
+| ![Answer](docs/screenshots/web-04-answer-sources.png) | ![Fallback](docs/screenshots/web-05-fallback.png) | ![Quiz](docs/screenshots/web-08-quiz-results.png) |
+
+| Summary | Saved conversation | Phone (390 px) |
+|---|---|---|
+| ![Summary](docs/screenshots/web-06-summary.png) | ![History](docs/screenshots/web-09-history.png) | ![Mobile](docs/screenshots/web-12-mobile-chat.png) |
+
+Streamlit app: [`fallback-case.png`](docs/screenshots/fallback-case.png), [`12-quiz-results.png`](docs/screenshots/12-quiz-results.png),
+[`15-history-saved.png`](docs/screenshots/15-history-saved.png). All images are in [`docs/screenshots/`](docs/screenshots/).
 
 ## Limitations
 
@@ -168,10 +188,11 @@ The most important ones (the full list, with evidence, is in [`docs/known_issues
   handles them (KI-17).
 - **Citation checks are shallow**: the code verifies that a cited chunk exists, not that it supports the sentence (KI-20).
 - **Follow-up questions do not use earlier messages**: history is saved, not used as context (KI-29).
+- **Web UI**: answers are plain text (no Markdown); checked in one browser (Edge) with a read-only code review and an XSS test, not with automated browser tests (KI-30).
 - **Free-tier limits**: daily LLM quota, occasional 500/503/504 errors and slow responses (KI-18).
 
 ## Possible improvements
 
 Hybrid search (BM25 + vectors) and a reranker for related-but-absent questions; chunk-level evaluation labels and a
 separate dev/test split; structure-aware chunking (keep headings with their body, drop repeated headers and footers);
-authentication with per-user collections; a real task queue for indexing; Docker images for the API and UI.
+authentication with per-user collections; a real task queue for indexing; automated browser tests for the web UI; a Docker image for the Streamlit UI.

@@ -3,7 +3,7 @@
 Issues we are aware of and have deliberately not fixed yet. Each entry says what we
 verified, what we did not, and when to revisit. Update the status when one is resolved.
 
-Last updated after conversation history. Last `pytest -q` run: 1172 passed, 29 skipped (the Qdrant-dependent tests, Qdrant was not running), 3 deselected (integration tests that call the real Gemini API).
+Last updated after the web UI review (KI-30). Last `pytest -q` run: 1213 passed, 0 skipped (Qdrant was running), 3 deselected (integration tests that call the real Gemini API).
 
 | ID | Area | Issue | Status |
 |----|------|-------|--------|
@@ -36,6 +36,7 @@ Last updated after conversation history. Last `pytest -q` run: 1172 passed, 29 s
 | KI-27 | frontend | Polling, per-session chat history, UI-side timeout does not stop the server, English widget texts, one browser checked | Open, by design |
 | KI-28 | summary / quiz | LLM-verified, not proven: easy distractors, shared blind spots of the verifier, quota cost, no lock on identical requests | Open |
 | KI-29 | history | Saved chats are shared (no auth) and keep source excerpts of deleted documents; follow-ups do NOT use history | Open, by design |
+| KI-30 | web UI | Plain HTML/JS UI (`web/`): review fixed 6 medium bugs; limits remain (no Markdown, no a11y audit, one browser, no automated browser tests) | Open, by design |
 
 ## KI-01: Repeated headers/footers are indexed
 
@@ -420,3 +421,40 @@ A wrong `conversation_id` is a `404` *before* the model is called, so it costs n
   "bị gián đoạn".
 - The schema gained columns (`doc_ids_json`, `updated_at`, and the answer fields of `messages`). `init_db` adds them to an existing database
   (verified on the real, old-schema `app.sqlite3` and in a test); there is no down-migration.
+
+## KI-30: Web UI (`web/`, served at `/ui/`)
+
+**How it was checked (real runs, 2026-11-05).** A read-only code review of `web/` and the `/ui` mount, then Edge (Playwright, headless) against the
+API in Docker with the sample PDF: upload (HTTP 200 "already ready"), one answerable question (5 sources, 1 cited), one unrelated question
+(info box "Không đủ bằng chứng…", no sources, no LLM call), short summary (served from cache), 3-question quiz with verifier, opening a saved
+conversation (only `GET /conversations/{id}`, no LLM call), 390 px and 360 px widths (no horizontal scroll), drawer closing with Esc, the
+button and the backdrop. Screenshots: `docs/screenshots/web-*.png`.
+
+**XSS.** A TXT file containing `<img src=x onerror=alert(1)>` was uploaded and asked about. The answer and the source excerpt show the string as
+text; 0 dialogs, 0 `<img>` elements, 0 elements with `on*` attributes. A filename with HTML-looking characters cannot be created on Windows (`<`,
+`>`, `"`), so `xss_&lt;img…&gt;.txt` was used instead; the backend rewrote it to a safe name. Static guards (in `tests/test_web_ui.py`): no
+`innerHTML`/`eval`/inline code, exact CSP. Not tested: a hostile filename that reaches the UI unsanitised (the backend sanitises it first).
+
+**Bugs found by the review and fixed.** (1) polling stopped at once for a new upload while an older document was stuck > 180 s; (2) starting a new
+chat or opening a saved one while a reply was pending put the reply in the wrong log and overwrote the conversation id; (3) the 2 s poll re-enabled
+summary/quiz buttons that had a request in flight (duplicate LLM calls); (4) history reload could ask for `limit` > 100 (HTTP 422) and then wiped
+the list; (5) the whole document list was rebuilt every 2 s, so keyboard focus was lost; (6) the closed mobile drawer was still tabbable. Also
+fixed: Enter inserted a newline as well as sending; sending a question after opening a chat with deleted documents erased the shown history.
+Fixes 3, 4 and the Enter/hint ones are covered by source guards only; 1, 2 and 5 were not re-tested in a browser (see below).
+
+**Verified after the fixes (browser):** closed drawer is `visibility: hidden`, open is visible, focus returns to the "Tài liệu" button after Esc,
+Enter in an empty box leaves it empty, the mobile scenario above passes again on the rebuilt container.
+**Not verified after the fixes:** the race in (2), the 180 s polling window in (1) and focus retention in (5) need a slow upload or a slow reply; no
+browser test reproduces them. The Docker image must be rebuilt (`docker compose up -d --build api`) to pick up changes in `web/`.
+
+**Known limits, not fixed.**
+- Answers and summaries are plain text with `white-space: pre-wrap`; `**bold**` and lists are not rendered (by design, KI-19 style safety).
+- The CSP is a `<meta>` tag: it cannot set `frame-ancestors`, and no `X-Frame-Options` header is sent (clickjacking is not covered).
+- `/favicon.ico` returns 404 (one console error per page load).
+- The health banner clears only via "Thử kết nối lại"; a successful poll does not clear it.
+- `doc_ids` is not capped at 50 on the client (more than 50 ticked documents gives a generic validation error); `0`/negative page numbers
+  and an empty question count are silently treated as "no limit"/5; a summary `warning` is shown only when `truncated` is true.
+- `.cite` buttons are 28 px high (spec asks for 40 px touch targets); tabs have no arrow-key navigation; drawer has no focus trap.
+- Out-of-order `GET /documents` responses can briefly show an older list; the response body read has no separate timeout.
+- Upload limit `MAX_UPLOAD_MB = 20` is a constant in `app.js`; it must equal the backend setting (the server still enforces it).
+- Same sharing limits as the API: no authentication (KI-23), history shared (KI-29).
