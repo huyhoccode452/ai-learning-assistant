@@ -484,3 +484,24 @@ def test_api_key_is_redacted_from_error_messages() -> None:
     llm, _ = build_llm(models)
     err = assert_rag_error(RagErrorCode.REQUEST_REJECTED, llm)
     assert key not in err.message and "***" in err.message
+
+
+# =========================================================================== GeminiLLM: structured output
+
+
+def test_a_schema_turns_on_json_mode_and_an_output_budget_can_be_set_per_call() -> None:
+    models = FakeGenerateModels([make_response('{"ok": true}')])
+    llm, _ = build_llm(models)
+    schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}}
+    assert llm.generate("system", "prompt", response_schema=schema, max_output_tokens=8192).text == '{"ok": true}'
+    config = models.calls[0]["config"]
+    assert config.response_mime_type == "application/json" and config.response_json_schema == schema
+    assert config.max_output_tokens == 8192
+
+
+def test_a_plain_call_has_no_json_mode_and_keeps_the_default_budget() -> None:
+    models = FakeGenerateModels([make_response("text")])
+    llm, _ = build_llm(models)
+    llm.generate("system", "prompt")
+    config = models.calls[0]["config"]
+    assert config.response_mime_type is None and config.response_json_schema is None and config.max_output_tokens == 4096

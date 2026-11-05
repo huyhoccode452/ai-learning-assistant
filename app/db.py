@@ -62,6 +62,18 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages (conversation_id, id);
+CREATE TABLE IF NOT EXISTS generations (
+    cache_key      TEXT PRIMARY KEY,
+    doc_id         TEXT NOT NULL REFERENCES documents(doc_id) ON DELETE CASCADE,
+    kind           TEXT NOT NULL CHECK (kind IN ('summary', 'quiz')),
+    params_json    TEXT NOT NULL,
+    model          TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    result_json    TEXT NOT NULL,
+    llm_calls      INTEGER NOT NULL,
+    created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_generations_doc ON generations (doc_id);
 """
 
 
@@ -91,6 +103,18 @@ class Message:
     role: Role
     content: str
     sources_json: str | None
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class Generation:
+    """A cached summary or quiz. `llm_calls` is what producing it cost the first time."""
+
+    cache_key: str
+    doc_id: str
+    kind: str
+    result_json: str
+    llm_calls: int
     created_at: str
 
 
@@ -250,6 +274,34 @@ class Database:
                 (doc_id, DocStatus.PROCESSING),
             )
         return cursor.rowcount == 1
+
+    # ------------------------------------------------------------------ generations (summary / quiz cache)
+
+    def get_generation(self, cache_key: str) -> Generation | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT cache_key, doc_id, kind, result_json, llm_calls, created_at FROM generations WHERE cache_key = ?",
+                (cache_key,),
+            ).fetchone()
+        return Generation(**dict(row)) if row else None
+
+    def put_generation(
+        self, cache_key: str, doc_id: str, kind: str, params_json: str, model: str, prompt_version: str,
+        result_json: str, llm_calls: int,
+    ) -> None:
+        """Store (or replace) a result. Raises sqlite3.IntegrityError if the document no longer exists."""
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO generations (cache_key, doc_id, kind, params_json, model, prompt_version, "
+                "result_json, llm_calls, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (cache_key, doc_id, kind, params_json, model, prompt_version, result_json, llm_calls, _now()),
+            )
+
+    def count_generations(self, doc_id: str | None = None) -> int:
+        with self._connect() as conn:
+            if doc_id is None:
+                return conn.execute("SELECT COUNT(*) FROM generations").fetchone()[0]
+            return conn.execute("SELECT COUNT(*) FROM generations WHERE doc_id = ?", (doc_id,)).fetchone()[0]
 
     # ------------------------------------------------------------------ conversations
 

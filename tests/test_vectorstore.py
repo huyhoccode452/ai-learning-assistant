@@ -365,3 +365,27 @@ def test_is_reachable_is_true_for_a_live_server_and_false_for_a_dead_one(store: 
         assert dead.is_reachable() is False  # must return False, never raise
     finally:
         dead.close()
+
+
+# =========================================================================== get_chunks (reading a whole document)
+
+
+def test_get_chunks_returns_one_document_in_reading_order(ready) -> None:
+    texts = [f"đoạn số {i} nói về chủ đề {i}" for i in range(6)]
+    ready.index_document("d1", make_chunks("d1", texts), embedder.embed_documents(texts))
+    other = ["một tài liệu khác hoàn toàn"]
+    ready.index_document("d2", make_chunks("d2", other), embedder.embed_documents(other))
+    chunks = ready.get_chunks("d1")
+    assert [c.chunk_index for c in chunks] == [0, 1, 2, 3, 4, 5] and [c.text for c in chunks] == texts
+    assert {c.doc_id for c in chunks} == {"d1"} and chunks[2].page == 3 and all(c.score == 0.0 for c in chunks)
+    assert ready.get_chunks("missing") == []
+
+
+def test_get_chunks_follows_the_pagination_of_a_large_document(ready) -> None:
+    from app.vectorstore import SCROLL_PAGE_SIZE
+
+    count = SCROLL_PAGE_SIZE + 44  # more than one scroll page
+    texts = [f"đoạn {i} " + "nội dung " * 3 for i in range(count)]
+    ready.index_document("big", make_chunks("big", texts), embedder.embed_documents(texts))
+    chunks = ready.get_chunks("big")
+    assert [c.chunk_index for c in chunks] == list(range(count))  # nothing lost, nothing repeated, in order

@@ -27,7 +27,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, File, Path as PathParam, 
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import Settings, get_settings
@@ -42,8 +42,11 @@ from app.ingestion import (
     ingest_file,
     validate_upload,
 )
+from app.generation import GenerationError, GenerationErrorCode, GenResult
 from app.ingestion import ErrorCode as IngestionCode
+from app.quiz import generate_quiz
 from app.rag import GeminiLLM, LLM, MAX_QUESTION_CHARS, RagAnswer, RagError, RagErrorCode, RagPipeline
+from app.summary import SummaryStyle, summarize_document
 from app.vectorstore import QdrantStore, StoreErrorCode, VectorStoreError
 
 logger = logging.getLogger(__name__)
@@ -122,6 +125,13 @@ _RAG_ERRORS: dict[RagErrorCode, tuple[int, str]] = {
 }
 
 
+_GENERATION_ERRORS: dict[GenerationErrorCode, tuple[int, str]] = {
+    GenerationErrorCode.NO_CONTENT: (409, "Không đọc được nội dung của tài liệu trong chỉ mục. Hãy xóa tài liệu và tải lên lại."),
+    GenerationErrorCode.EMPTY_SELECTION: (422, "Không có nội dung nào khớp với khoảng trang hoặc chủ đề đã chọn."),
+    GenerationErrorCode.MALFORMED_OUTPUT: (502, "Mô hình AI trả về kết quả không đúng định dạng. Hãy thử lại."),
+}
+
+
 def api_error_from(exc: BaseException) -> ApiError:
     """Translate a domain exception into an ApiError. Anything unknown becomes a generic 500."""
     tables: tuple[tuple[type, str, dict], ...] = (
@@ -129,6 +139,7 @@ def api_error_from(exc: BaseException) -> ApiError:
         (EmbeddingError, "embedding", _EMBEDDING_ERRORS),
         (VectorStoreError, "store", _STORE_ERRORS),
         (RagError, "rag", _RAG_ERRORS),
+        (GenerationError, "generation", _GENERATION_ERRORS),
     )
     for exc_type, prefix, table in tables:
         if isinstance(exc, exc_type):
@@ -216,6 +227,85 @@ class ChatResponse(BaseModel):
     latency: LatencyOut
     best_score: float | None
     truncated: bool
+
+
+class SummaryRequest(BaseModel):
+    style: SummaryStyle = Field(default=SummaryStyle.SHORT, description="'short' or 'detailed'")
+    refresh: bool = Field(default=False, description="True = ignore the stored result and ask the model again (costs quota)")
+
+
+class SummaryOut(BaseModel):
+    summary: str
+    style: SummaryStyle
+    num_chunks_used: int
+    num_chunks_total: int
+    truncated: bool = Field(description="True = the document was longer than the hard cap and only its beginning was summarised")
+    warning: str | None = None
+    llm_calls: int = Field(description="LLM calls made by THIS request (0 = answered from the stored result)")
+    cached: bool
+    latency_ms: float
+    llm_ms: float
+
+
+class QuizRequest(BaseModel):
+    num_questions: int = Field(default=5, ge=1, le=10)
+    topic: str | None = Field(default=None, max_length=200, description="Optional topic; chunks are chosen by semantic search")
+    page_from: int | None = Field(default=None, ge=1)
+    page_to: int | None = Field(default=None, ge=1)
+    verify: bool = Field(default=True, description="Run the verifier call (one extra LLM call)")
+    refresh: bool = Field(default=False, description="True = ignore the stored quiz and generate a new one (costs quota)")
+
+    @model_validator(mode="after")
+    def _page_range(self) -> "QuizRequest":
+        if self.page_from is not None and self.page_to is not None and self.page_from > self.page_to:
+            raise ValueError("page_from must not be greater than page_to")
+        return self
+
+
+class QuizSourceOut(BaseModel):
+    chunk_index: int
+    page: int | None
+    filename: str
+    quote: str = Field(description="Verbatim passage of the document that supports the answer")
+
+
+class QuizQuestionOut(BaseModel):
+    id: int
+    question: str
+    options: list[str] = Field(min_length=4, max_length=4)
+    answer_index: int = Field(ge=0, le=3)
+    explanation: str
+    source: QuizSourceOut
+    verified: bool | None = Field(description="True = the verifier confirmed it; null = not verified")
+
+
+class VerifierDecisionOut(BaseModel):
+    question: str
+    key_supported: bool
+    another_option_correct: bool
+    reason: str
+    kept: bool = Field(description="True = the verifier accepted it")
+    in_quiz: bool = Field(default=True, description="False = accepted but cut because more than num_questions survived")
+
+
+class QuizOut(BaseModel):
+    questions: list[QuizQuestionOut]
+    requested: int
+    returned: int
+    dropped: dict[str, int] = Field(description="Why questions were discarded, by reason code")
+    message: str | None = Field(default=None, description="Set when fewer questions than requested survived")
+    warnings: list[str] = []
+    verify_requested: bool
+    verified: bool
+    verifier_decisions: list[VerifierDecisionOut]
+    llm_calls: int
+    cached: bool
+    latency_ms: float
+    llm_ms: float
+
+
+def _cost(result: GenResult) -> dict[str, Any]:
+    return {"llm_calls": result.llm_calls, "cached": result.cached, "latency_ms": result.total_ms, "llm_ms": result.llm_ms}
 
 
 def _document_out(doc: Document) -> DocumentOut:
@@ -494,7 +584,7 @@ def create_app() -> FastAPI:
             logger.error("%s -> %s (%d): %s", type(exc).__name__, error.code, error.status, exc)
         return _error_response(error.status, error.code, error.message, headers=error.headers)
 
-    for domain_exception in (IngestionError, EmbeddingError, VectorStoreError, RagError):
+    for domain_exception in (IngestionError, EmbeddingError, VectorStoreError, RagError, GenerationError):
         app.add_exception_handler(domain_exception, _domain_error)
 
     @app.exception_handler(RequestValidationError)
@@ -612,6 +702,47 @@ def create_app() -> FastAPI:
     ) -> ChatResponse:
         doc_ids = _require_documents(db, body.doc_ids)
         return _chat_response(pipeline.answer(body.question, doc_ids=doc_ids, top_k=body.top_k))
+
+    @app.post("/documents/{doc_id}/summary", response_model=SummaryOut,
+              summary="Summary of one ready document (1 LLM call, or map-reduce for a very long one)",
+              responses={code: {"model": ErrorResponse} for code in (404, 409, 422, 429, 502, 503, 504)})
+    def summarize(
+        doc_id: DocIdPath,
+        db: Annotated[Database, Depends(get_db)],
+        store: Annotated[QdrantStore, Depends(get_store)],
+        llm: Annotated[LLM, Depends(get_llm)],
+        settings: Annotated[Settings, Depends(get_settings)],
+        body: SummaryRequest | None = None,
+    ) -> SummaryOut:
+        request = body or SummaryRequest()
+        _require_documents(db, [doc_id])
+        result = summarize_document(db, store, llm, settings, doc_id, request.style, refresh=request.refresh)
+        return SummaryOut(**result.payload, **_cost(result))
+
+    @app.post("/documents/{doc_id}/quiz", response_model=QuizOut,
+              summary="Multiple-choice quiz grounded in one ready document (1-2 LLM calls)",
+              responses={code: {"model": ErrorResponse} for code in (404, 409, 422, 429, 502, 503, 504)})
+    def quiz(
+        doc_id: DocIdPath,
+        db: Annotated[Database, Depends(get_db)],
+        store: Annotated[QdrantStore, Depends(get_store)],
+        embedder: Annotated[Embedder, Depends(get_embedder)],
+        llm: Annotated[LLM, Depends(get_llm)],
+        settings: Annotated[Settings, Depends(get_settings)],
+        body: QuizRequest | None = None,
+    ) -> QuizOut:
+        request = body or QuizRequest()
+        _require_documents(db, [doc_id])
+        result = generate_quiz(
+            db, store, embedder, llm, settings, doc_id, num_questions=request.num_questions, topic=request.topic,
+            page_from=request.page_from, page_to=request.page_to, verify=request.verify, refresh=request.refresh,
+        )
+        p = result.payload
+        return QuizOut(
+            questions=p["questions"], requested=p["requested"], returned=len(p["questions"]), dropped=p["dropped"],
+            message=p["message"], warnings=p["warnings"], verify_requested=p["verify_requested"], verified=p["verified"],
+            verifier_decisions=p["verifier_decisions"], **_cost(result),
+        )
 
     return app
 

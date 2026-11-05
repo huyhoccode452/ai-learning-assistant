@@ -123,8 +123,19 @@ class LLMResult:
 
 
 class LLM(Protocol):
-    def generate(self, system_instruction: str, prompt: str) -> LLMResult:
-        """One single-turn completion. Raises RagError on any expected failure."""
+    def generate(
+        self,
+        system_instruction: str,
+        prompt: str,
+        *,
+        response_schema: dict[str, Any] | None = None,
+        max_output_tokens: int | None = None,
+    ) -> LLMResult:
+        """One single-turn completion. Raises RagError on any expected failure.
+
+        `response_schema` (a JSON schema) asks the model for JSON that follows it; callers must still validate
+        the text, a schema is a request and not a guarantee. `max_output_tokens` overrides the default for one call.
+        """
         ...
 
 
@@ -177,11 +188,20 @@ class GeminiLLM:
         self._secret = settings.gemini_api_key.get_secret_value()
         self._client = client or genai.Client(api_key=self._secret)
 
-    def generate(self, system_instruction: str, prompt: str) -> LLMResult:
+    def generate(
+        self,
+        system_instruction: str,
+        prompt: str,
+        *,
+        response_schema: dict[str, Any] | None = None,
+        max_output_tokens: int | None = None,
+    ) -> LLMResult:
         config = types.GenerateContentConfig(
             system_instruction=system_instruction,
             temperature=self._temperature,
-            max_output_tokens=self._max_output_tokens,
+            max_output_tokens=max_output_tokens or self._max_output_tokens,
+            response_mime_type="application/json" if response_schema else None,
+            response_json_schema=response_schema,
             # We pass no tools; make sure the SDK never starts a function-calling loop.
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
             thinking_config=(

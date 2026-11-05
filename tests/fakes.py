@@ -123,12 +123,14 @@ class FakeLLM:
     def __init__(self, reply: "str | Exception" = "ok [1]", **result_fields: Any) -> None:
         self.reply = reply
         self.result_fields = result_fields
-        self.calls: list[dict[str, str]] = []
+        self.calls: list[dict[str, Any]] = []
 
-    def generate(self, system_instruction: str, prompt: str) -> Any:
+    def generate(self, system_instruction: str, prompt: str, *, response_schema: Any = None,
+                 max_output_tokens: int | None = None) -> Any:
         from app.rag import LLMResult
 
-        self.calls.append({"system": system_instruction, "prompt": prompt})
+        self.calls.append({"system": system_instruction, "prompt": prompt, "response_schema": response_schema,
+                           "max_output_tokens": max_output_tokens})
         if isinstance(self.reply, Exception):
             raise self.reply
         return LLMResult(text=self.reply, **self.result_fields)
@@ -183,6 +185,7 @@ class FakeVectorStore(FakeStore):
         self.ensure_calls = 0
         self.fail_index: Exception | None = None
         self.fail_delete: Exception | None = None
+        self.fail_read: Exception | None = None
 
     def _rebuild(self) -> None:
         from app.vectorstore import RetrievedChunk
@@ -207,9 +210,59 @@ class FakeVectorStore(FakeStore):
         self._rebuild()
         return len(chunks)
 
+    def get_chunks(self, doc_id: str) -> list[Any]:
+        from app.vectorstore import RetrievedChunk
+
+        if self.fail_read:
+            raise self.fail_read
+        return sorted((RetrievedChunk(0.0, c.doc_id, c.filename, c.page, c.chunk_index, c.text)
+                       for c in self.indexed.get(doc_id, [])), key=lambda c: c.chunk_index)
+
     def delete_document(self, doc_id: str) -> int:
         if self.fail_delete:
             raise self.fail_delete
         removed = len(self.indexed.pop(doc_id, []))
         self._rebuild()
         return removed
+
+
+class ScriptedLLM:
+    """Plays back one scripted reply per call: a string, an Exception to raise, or a callable(system, prompt, kwargs)
+    returning a string. A call beyond the script fails the test, so 'zero LLM calls' can be asserted by an empty script."""
+
+    def __init__(self, *script: Any) -> None:
+        self.script = list(script)
+        self.calls: list[dict[str, Any]] = []
+
+    def generate(self, system_instruction: str, prompt: str, *, response_schema: Any = None,
+                 max_output_tokens: int | None = None) -> Any:
+        from app.rag import LLMResult
+
+        self.calls.append({"system": system_instruction, "prompt": prompt, "response_schema": response_schema,
+                           "max_output_tokens": max_output_tokens})
+        assert self.script, "unexpected extra LLM call"
+        item = self.script.pop(0)
+        if callable(item):
+            item = item(system_instruction, prompt, self.calls[-1])
+        if isinstance(item, Exception):
+            raise item
+        return LLMResult(text=item)
+
+
+DOC = "a" * 16
+
+
+def make_doc_chunk(index: int, text: str | None = None, page: Any = "auto", doc_id: str = DOC,
+                   filename: str = "tai_lieu.pdf"):
+    """A RetrievedChunk with a distinct, quotable fact. Chunk i says: tham_so_i has default value i*10 MB."""
+    from app.vectorstore import RetrievedChunk
+
+    body = text if text is not None else (
+        f"Tham số tham_so_{index} có giá trị mặc định là {index * 10}MB và được dùng cho tác vụ số {index}. "
+        f"Nếu đặt quá cao, hệ thống tiêu tốn nhiều bộ nhớ hơn mức cần thiết cho tham_so_{index}."
+    )
+    return RetrievedChunk(0.0, doc_id, filename, index // 2 + 1 if page == "auto" else page, index, body)  # page=None is allowed
+
+
+def make_doc_chunks(count: int, **kwargs: Any) -> list[Any]:
+    return [make_doc_chunk(i, **kwargs) for i in range(count)]

@@ -19,8 +19,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # project root:
 
 from frontend import view  # noqa: E402
 from frontend.api_client import DEFAULT_BASE_URL, ApiClient, ApiError, ChatResult, Document  # noqa: E402
+from frontend.study_views import quiz_area, summary_area  # noqa: E402
 
 MAX_QUESTION_CHARS = 2000  # same limit as the backend (app/rag.py)
+SECTIONS = ("Hỏi đáp", "Tóm tắt", "Trắc nghiệm")
 INTERRUPTED = ("Yêu cầu trước đó bị gián đoạn khi trang được làm mới nên chưa có câu trả lời. "
                "Máy chủ có thể vẫn đang xử lý. Hãy hỏi lại nếu cần.")
 
@@ -35,7 +37,8 @@ def upload_limit_mb() -> int:
 def init_state() -> None:
     defaults = {"messages": [], "pending": None, "uploader_n": 0, "handled": set(), "notice": None, "confirm_delete": None,
                 "first_seen": {}, "docs": [], "scope": [], "known_ready": set(), "docs_sig": None, "polling_active": False,
-                "fresh_docs": False, "docs_error": None}
+                "fresh_docs": False, "docs_error": None, "summaries": {}, "summary_error": None, "quiz": None, "quiz_run": 0,
+                "quiz_error": None}
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
     if "client" not in st.session_state:  # tests put a fake client here before the first run
@@ -285,7 +288,16 @@ def main() -> None:
         reason = "Hãy chọn ít nhất một tài liệu ở thanh bên"
     else:
         reason = None
-    chat_area(client, list(ss.scope), reason, show_hint=not down)  # the red banner already explains an outage
+    if down:
+        chat_area(client, list(ss.scope), reason, show_hint=False)  # the red banner already explains an outage
+        return
+    section = st.radio("Chức năng", SECTIONS, horizontal=True, key="section", label_visibility="collapsed")
+    if section == "Tóm tắt":
+        summary_area(client, ready)
+    elif section == "Trắc nghiệm":
+        quiz_area(client, ready)
+    else:
+        chat_area(client, list(ss.scope), reason)
 
 
 main()

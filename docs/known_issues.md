@@ -3,7 +3,7 @@
 Issues we are aware of and have deliberately not fixed yet. Each entry says what we
 verified, what we did not, and when to revisit. Update the status when one is resolved.
 
-Last updated after `frontend/streamlit_app.py` (513 tests + 3 integration tests).
+Last updated after summary and quiz generation (1086 tests + 3 integration tests).
 
 | ID | Area | Issue | Status |
 |----|------|-------|--------|
@@ -34,6 +34,7 @@ Last updated after `frontend/streamlit_app.py` (513 tests + 3 integration tests)
 | KI-25 | api | Small consistency gaps (ready but vectors missing, same bytes with another name) | Open |
 | KI-26 | evaluation | Page-level labels hide chunk-level misses; tiny set; threshold tuned and tested on the same questions | Open |
 | KI-27 | frontend | Polling, per-session chat history, UI-side timeout does not stop the server, English widget texts, one browser checked | Open, by design |
+| KI-28 | summary / quiz | LLM-verified, not proven: easy distractors, shared blind spots of the verifier, quota cost, no lock on identical requests | Open |
 
 ## KI-01: Repeated headers/footers are indexed
 
@@ -230,6 +231,9 @@ LLM as uncited noise. It did no visible harm in 10 questions.)
   longer than 10 s: q04 61.8 s (one retry after `HTTP 500`; the first attempt ran about the 60 s `timeout_s`, inferred) and q09
   13.2 s with no retry. `gemini-3.5-flash` was out of daily quota during that run (429 asking to wait 14991 s), so its
   answer quality was not measured.
+- **Summary / quiz update (2026-11-05):** a real quiz of 10 questions with verification took 72 s: the server log shows one
+  `HTTP 504 DEADLINE_EXCEEDED` (the first attempt ran about the 60 s timeout) and one retry. The UI therefore waits 120 s for
+  summary and quiz (chat stays at 60 s).
 - 504 is retried like 429/5xx by design (same policy as embeddings); with 5 retries the worst case is
   minutes. Consider `EMBED_MAX_RETRIES` lower for interactive use or a separate LLM retry setting.
 
@@ -332,3 +336,48 @@ the design. Mitigations if needed: lower retries for chat, a semaphore for index
   project dependency); no other browser or mobile layout was looked at.
 - The client trusts the Vietnamese message in the backend's error body. If a proxy answers with another body, the client shows
   its own generic text by status code instead of the raw body.
+
+## KI-28: Summary and quiz generation (`app/summary.py`, `app/quiz.py`)
+
+**Cost per request** (each LLM call spends free-tier quota; results are stored in SQLite table `generations`, so a repeated
+request costs 0 calls, measured: 0.0-0.1 s):
+
+| Request | LLM calls |
+|---|---|
+| Summary, document fits 60 000 characters (the 9-page sample is 17 640) | 1 |
+| Summary, longer | one per group of at most 40 000 characters + 1 merge = at most 7; beyond 6 groups the end is left out and the response says so (`truncated`, `warning`) |
+| Quiz without verification | 1 |
+| Quiz with verification (default) | 2 |
+
+Measured with `gemini-3.1-flash-lite` + `minimal` (3.5-flash was out of quota): short summary 1.6 s, detailed 3.8 s, quiz of 5 with
+verification 6.8 s, map-reduce with small limits (4 groups) 5 calls in 9.0 s, a capped one (2 groups, 14 of 29 chunks) 3 calls.
+
+**What the code checks, and what it does not**
+
+- Checked in code, not by trusting the model: 4 distinct options, valid key, non-empty explanation, a quote of at least 15
+  characters that occurs verbatim (after NFC + whitespace normalisation, case-sensitive) in the chunk the question cites; the page
+  always comes from that chunk. In the real runs this dropped 1 of 11 questions of a 10-question request (`quote_not_in_source`).
+- The position of the correct option is assigned by code in balanced blocks of four, so a model that always answers "A" cannot
+  pass that bias on (tested over hundreds of seeds).
+- A quote proves the answer is in the document, **not that the question is good**. Read by hand against the PDF (15 distinct real
+  questions): none wrong, none with two clearly correct options, one mildly ambiguous (an option that is a downstream symptom
+  described elsewhere in the document), and many distractors are unrelated concepts, so the quizzes are easy. The model also
+  tends to ask twice about the same chunk even though the sources are spread over the document.
+- **The verifier is the same model family and sees only the cited chunk.** On the real quizzes it accepted 20 of 20 questions; in a
+  negative control (4 questions, 3 deliberately wrong) it rejected 3 of 3 and accepted the correct one. That shows it can say no,
+  with n = 4; it did not catch the mildly ambiguous question above, and it cannot notice that another chunk contradicts the key.
+  A quiz whose verification could not run (quota, unreadable reply) is returned flagged "unverified" and is not stored.
+- Page-range quizzes use the chunk's page, so DOCX/TXT chunks (no pages) are never selected when a range is given. Topic quizzes pick
+  chunks by embedding search (12 nearest), so a vague topic can give few distinct chunks (a topic + page-8 quiz used 2 chunks).
+
+**Other limits**
+
+- Budgets are characters, not tokens (no `count_tokens` call). Consecutive chunks of a page overlap by `CHUNK_OVERLAP`, so the
+  budget counts a little duplicated text.
+- Two identical requests that arrive at the same moment both call the model (no lock); the second stored result replaces the first.
+- The stored result is keyed by the indexed text, model + thinking level and the prompt texts; changing any prompt invalidates it
+  automatically. Old rows of other keys stay until the document is deleted (they cascade with it).
+- The API returns the answer key and explanation with the questions: grading happens in the Streamlit session, there is no
+  server-side exam mode. Fine for study use; not for assessment.
+- Real runs covered only the 9-page sample PDF (no DOCX/TXT, no document near the 60 000-character budget; the map-reduce path was
+  run with artificially small limits).

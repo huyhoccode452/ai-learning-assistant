@@ -24,7 +24,11 @@ HEALTH_READ_TIMEOUT_S = 3.0
 LIST_READ_TIMEOUT_S = 10.0
 UPLOAD_READ_TIMEOUT_S = 60.0
 CHAT_READ_TIMEOUT_S = 60.0  # the UI gives up after about this long (the server may still be working)
+# Summary and quiz make 1 to 7 LLM calls (a real quiz of 10 with verification took 72 s because of one 504 + retry),
+# so they get a longer wait. Their result is stored by the server: asking again after a timeout is free if it finished.
+GENERATE_READ_TIMEOUT_S = 120.0
 MAX_MESSAGE_CHARS = 500
+GENERATE_TIMEOUT_HINT = " Nếu máy chủ đã làm xong, bấm lại sẽ lấy kết quả đã lưu ngay, không tốn thêm lượt gọi mô hình."
 
 # Used only when the response has no usable error body (for example a proxy page): the text is ours, not theirs.
 _STATUS_MESSAGES = {
@@ -105,6 +109,63 @@ class ChatResult:
     latency: Latency
 
 
+@dataclass(frozen=True, slots=True)
+class Summary:
+    summary: str
+    style: str
+    num_chunks_used: int
+    num_chunks_total: int
+    truncated: bool
+    warning: str | None
+    llm_calls: int  # made by this request; 0 = answered from the server's stored result
+    cached: bool
+    latency_ms: float
+
+
+@dataclass(frozen=True, slots=True)
+class QuizSource:
+    chunk_index: int
+    page: int | None
+    filename: str
+    quote: str
+
+
+@dataclass(frozen=True, slots=True)
+class QuizQuestion:
+    id: int
+    question: str
+    options: tuple[str, ...]  # exactly 4, already shuffled by the server
+    answer_index: int  # kept out of the page until the user presses "Kiểm tra"
+    explanation: str
+    source: QuizSource
+    verified: bool | None
+
+
+@dataclass(frozen=True, slots=True)
+class VerifierDecision:
+    question: str
+    key_supported: bool
+    another_option_correct: bool
+    reason: str
+    kept: bool
+    in_quiz: bool
+
+
+@dataclass(frozen=True, slots=True)
+class Quiz:
+    questions: tuple[QuizQuestion, ...]
+    requested: int
+    dropped: dict[str, int]
+    message: str | None
+    warnings: tuple[str, ...]
+    verify_requested: bool
+    verified: bool
+    decisions: tuple[VerifierDecision, ...]
+    llm_calls: int
+    cached: bool
+    latency_ms: float
+
+
 def _clip(text: str) -> str:
     return text if len(text) <= MAX_MESSAGE_CHARS else text[: MAX_MESSAGE_CHARS - 1] + "…"
 
@@ -131,7 +192,8 @@ class ApiClient:
 
     # ------------------------------------------------------------------ transport
 
-    def _request(self, method: str, path: str, *, read_timeout: float, **kwargs: Any) -> tuple[Any, requests.Response]:
+    def _request(self, method: str, path: str, *, read_timeout: float, timeout_hint: str = "",
+                 **kwargs: Any) -> tuple[Any, requests.Response]:
         url = self.base_url + path
         try:
             response = self._session.request(method, url, timeout=(CONNECT_TIMEOUT_S, read_timeout), **kwargs)
@@ -140,7 +202,7 @@ class ApiClient:
         except requests.Timeout as exc:
             raise ApiError("timeout", (
                 f"Máy chủ chưa trả lời sau {read_timeout:g} giây. Yêu cầu có thể vẫn đang được xử lý ở phía máy chủ, "
-                "nên chưa chắc nó đã thất bại. Hãy đợi một chút, kiểm tra lại danh sách tài liệu rồi thử lại.")) from exc
+                "nên chưa chắc nó đã thất bại. Hãy đợi một chút, kiểm tra lại danh sách tài liệu rồi thử lại." + timeout_hint)) from exc
         except requests.ConnectionError as exc:
             raise self._unreachable() from exc
         except requests.RequestException as exc:  # anything else from the HTTP layer
@@ -204,6 +266,33 @@ class ApiClient:
                                  excerpt=s.get("excerpt", ""), cited=bool(s["cited"])) for s in d["sources"]),
         )
 
+    @staticmethod
+    def _summary(d: dict) -> Summary:
+        return Summary(summary=d["summary"], style=d["style"], num_chunks_used=int(d["num_chunks_used"]),
+                       num_chunks_total=int(d["num_chunks_total"]), truncated=bool(d["truncated"]), warning=d.get("warning"),
+                       llm_calls=int(d["llm_calls"]), cached=bool(d["cached"]), latency_ms=float(d["latency_ms"]))
+
+    @staticmethod
+    def _quiz(d: dict) -> Quiz:
+        questions = []
+        for q in d["questions"]:
+            options = tuple(str(o) for o in q["options"])
+            if len(options) != 4 or not 0 <= int(q["answer_index"]) <= 3:
+                raise ValueError("a quiz question must have 4 options and a key between 0 and 3")
+            src = q["source"]
+            questions.append(QuizQuestion(
+                id=int(q["id"]), question=q["question"], options=options, answer_index=int(q["answer_index"]),
+                explanation=q["explanation"], verified=q.get("verified"),
+                source=QuizSource(int(src["chunk_index"]), src.get("page"), src["filename"], src["quote"])))
+        return Quiz(
+            questions=tuple(questions), requested=int(d["requested"]), dropped={str(k): int(v) for k, v in d["dropped"].items()},
+            message=d.get("message"), warnings=tuple(str(w) for w in d.get("warnings", [])),
+            verify_requested=bool(d["verify_requested"]), verified=bool(d["verified"]),
+            decisions=tuple(VerifierDecision(v["question"], bool(v["key_supported"]), bool(v["another_option_correct"]),
+                                             v["reason"], bool(v["kept"]), bool(v.get("in_quiz", True)))
+                            for v in d.get("verifier_decisions", [])),
+            llm_calls=int(d["llm_calls"]), cached=bool(d["cached"]), latency_ms=float(d["latency_ms"]))
+
     # ------------------------------------------------------------------ endpoints
 
     def health(self) -> Health:
@@ -234,3 +323,18 @@ class ApiClient:
             body["doc_ids"] = doc_ids
         data, _ = self._request("POST", "/chat", read_timeout=CHAT_READ_TIMEOUT_S, json=body)
         return self._parse(self._chat, data)
+
+    def summary(self, doc_id: str, style: str = "short", refresh: bool = False) -> Summary:
+        data, _ = self._request("POST", f"/documents/{doc_id}/summary", read_timeout=GENERATE_READ_TIMEOUT_S,
+                                timeout_hint=GENERATE_TIMEOUT_HINT, json={"style": style, "refresh": refresh})
+        return self._parse(self._summary, data)
+
+    def quiz(self, doc_id: str, *, num_questions: int = 5, topic: str | None = None, page_from: int | None = None,
+             page_to: int | None = None, verify: bool = True, refresh: bool = False) -> Quiz:
+        body: dict[str, Any] = {"num_questions": num_questions, "verify": verify, "refresh": refresh}
+        for key, value in (("topic", topic), ("page_from", page_from), ("page_to", page_to)):
+            if value is not None:
+                body[key] = value
+        data, _ = self._request("POST", f"/documents/{doc_id}/quiz", read_timeout=GENERATE_READ_TIMEOUT_S,
+                                timeout_hint=GENERATE_TIMEOUT_HINT, json=body)
+        return self._parse(self._quiz, data)

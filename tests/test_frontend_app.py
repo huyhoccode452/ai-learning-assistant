@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from frontend.api_client import ApiError, ChatResult, Document, Health, Latency, Source, Upload
+from frontend.api_client import ApiError, ChatResult, Document, Health, Latency, Quiz, Source, Summary, Upload
 
 APP = str(Path(__file__).resolve().parent.parent / "frontend" / "streamlit_app.py")
 A, B, C = "a" * 16, "b" * 16, "c" * 16
@@ -50,6 +50,10 @@ class FakeClient:
         self.uploads: list[tuple[str, bytes]] = []
         self.list_calls = 0
         self.pending_sent_during_call: list[bool] = []
+        self.summary_calls: list[tuple] = []
+        self.summary_reply: "Summary | ApiError | None" = None
+        self.quiz_calls: list[dict] = []
+        self.quiz_reply: "Quiz | ApiError | None" = None
         self.upload_value: "Upload | ApiError" = Upload(doc(C, "moi.pdf", "processing"), already_indexed=False)
 
     def health(self) -> Health:
@@ -69,6 +73,18 @@ class FakeClient:
         if isinstance(self.reply, ApiError):
             raise self.reply
         return self.reply
+
+    def summary(self, doc_id: str, style: str = "short", refresh: bool = False) -> Summary:
+        self.summary_calls.append((doc_id, style, refresh))
+        if isinstance(self.summary_reply, ApiError):
+            raise self.summary_reply
+        return self.summary_reply
+
+    def quiz(self, doc_id: str, **kwargs) -> Quiz:
+        self.quiz_calls.append({"doc_id": doc_id, **kwargs})
+        if isinstance(self.quiz_reply, ApiError):
+            raise self.quiz_reply
+        return self.quiz_reply
 
     def delete_document(self, doc_id: str) -> int:
         if self.delete_error:
@@ -96,7 +112,7 @@ def start(client: FakeClient, **state) -> AppTest:
 
 def texts(at: AppTest) -> str:
     """All visible text of the page, flattened, for substring checks."""
-    parts = [e.value for group in (at.markdown, at.caption, at.info, at.warning, at.error, at.success, at.title, at.header) for e in group]
+    parts = [e.value for group in (at.markdown, at.caption, at.info, at.warning, at.error, at.success, at.title, at.header, at.subheader) for e in group]
     return "\n".join(parts)
 
 

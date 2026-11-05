@@ -35,6 +35,7 @@ DISTANCE = Distance.COSINE
 DOC_ID_FIELD = "doc_id"
 UPSERT_BATCH_SIZE = 100
 LIST_DOCUMENTS_LIMIT = 10_000  # upper bound on distinct documents returned by list_documents
+SCROLL_PAGE_SIZE = 256  # points per request when reading a whole document
 
 
 class StoreErrorCode(StrEnum):
@@ -272,6 +273,29 @@ class QdrantStore:
                 with_payload=True,
             )
         return [_to_retrieved(point.score, point.payload or {}) for point in response.points]
+
+    def get_chunks(self, doc_id: str) -> list[RetrievedChunk]:
+        """Every chunk of one document in reading order (by chunk_index). `score` is 0.0: this is a read, not a search.
+
+        Qdrant's scroll has no ordering guarantee, so the order is restored here. Pages of SCROLL_PAGE_SIZE points
+        are requested until the server returns no next offset.
+        """
+        chunks: list[RetrievedChunk] = []
+        offset = None
+        with self._backend("reading a document"):
+            while True:
+                points, offset = self._client.scroll(
+                    self.collection,
+                    scroll_filter=_doc_filter([doc_id]),
+                    limit=SCROLL_PAGE_SIZE,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                chunks.extend(_to_retrieved(0.0, point.payload or {}) for point in points)
+                if offset is None:
+                    break
+        return sorted(chunks, key=lambda c: c.chunk_index)
 
     def count_chunks(self, doc_id: str) -> int:
         with self._backend("counting chunks"):

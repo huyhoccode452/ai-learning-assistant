@@ -1,9 +1,10 @@
 """Pure presentation helpers for the Streamlit app (no Streamlit import, so they are unit-tested directly)."""
 
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 
-from frontend.api_client import Document, Latency, Source
+from frontend.api_client import Document, Latency, Quiz, QuizQuestion, Source, Summary
 
 # Document polling is bounded: the UI never waits forever for a free-tier embedding job.
 SLOW_AFTER_S = 30.0  # show the "free tier is slow" hint
@@ -90,3 +91,72 @@ def selection_after_refresh(current: list[str], ready_ids: list[str], known_read
     documents that just became ready (default = all ready)."""
     kept = [d for d in current if d in ready_ids]
     return kept + [d for d in ready_ids if d not in known_ready and d not in kept]
+
+
+# ---------------------------------------------------------------------- summary and quiz
+
+OPTION_LETTERS = "ABCD"
+# Mirrors the reason codes of app/quiz.py (the frontend never imports the backend).
+DROP_REASONS_VI = {
+    "schema_invalid": "sai định dạng",
+    "duplicate_options": "đáp án trùng nhau",
+    "positional_option": "đáp án tham chiếu đáp án khác",
+    "unknown_source": "dẫn nguồn không có trong các đoạn đã gửi",
+    "quote_not_in_source": "trích dẫn không có nguyên văn trong tài liệu",
+    "duplicate_question": "câu hỏi trùng",
+    "verifier_key_not_supported": "bộ xác minh: đáp án chưa được nguồn chứng minh",
+    "verifier_ambiguous": "bộ xác minh: có đáp án khác cũng đúng",
+}
+
+
+def option_label(index: int, text: str) -> str:
+    return f"{OPTION_LETTERS[index]}. {escape_markdown(text)}"
+
+
+@dataclass(frozen=True, slots=True)
+class Graded:
+    question_id: int
+    chosen: int | None  # None = not answered
+    correct_index: int
+    is_correct: bool
+
+
+def grade_quiz(questions: Sequence[QuizQuestion], answers: Mapping[int, int | None]) -> tuple[list[Graded], int]:
+    """Compare the chosen option of each question with its key. An unanswered question counts as wrong."""
+    graded = [Graded(q.id, answers.get(q.id), q.answer_index, answers.get(q.id) == q.answer_index) for q in questions]
+    return graded, sum(g.is_correct for g in graded)
+
+
+def verdict_text(graded: Graded) -> str:
+    if graded.chosen is None:
+        return f"Chưa trả lời. Đáp án đúng là {OPTION_LETTERS[graded.correct_index]}."
+    if graded.is_correct:
+        return f"Đúng ({OPTION_LETTERS[graded.chosen]})."
+    return f"Sai: bạn chọn {OPTION_LETTERS[graded.chosen]}, đáp án đúng là {OPTION_LETTERS[graded.correct_index]}."
+
+
+def drop_summary(dropped: Mapping[str, int]) -> str:
+    return "; ".join(f"{count} câu {DROP_REASONS_VI.get(reason, reason)}" for reason, count in sorted(dropped.items(), key=lambda kv: -kv[1]))
+
+
+def _cost_text(calls: int, cached: bool, latency_ms: float) -> str:
+    cost = "lấy từ kết quả đã lưu (0 lần gọi mô hình)" if cached else f"{calls} lần gọi mô hình"
+    return f"{cost} · {latency_ms / 1000:.1f} s"
+
+
+def summary_caption(summary: Summary) -> str:
+    return f"Dùng {summary.num_chunks_used}/{summary.num_chunks_total} đoạn · " + _cost_text(summary.llm_calls, summary.cached, summary.latency_ms)
+
+
+def quiz_caption(quiz: Quiz) -> str:
+    if quiz.verified:
+        checked = "đã xác minh"
+    elif quiz.verify_requested:
+        checked = "chưa xác minh được"
+    else:
+        checked = "không chạy bước xác minh"
+    return f"{len(quiz.questions)}/{quiz.requested} câu · {checked} · " + _cost_text(quiz.llm_calls, quiz.cached, quiz.latency_ms)
+
+
+def verified_badge(verified: bool | None) -> str:
+    return ":green-badge[Đã xác minh]" if verified else ":gray-badge[Chưa xác minh]"
