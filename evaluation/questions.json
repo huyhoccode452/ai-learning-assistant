@@ -1,1 +1,198 @@
-[]
+{
+  "document": "postgresql_performance_guide_vi.pdf",
+  "note": "Đáp án chuẩn tự gán nhãn từ PDF; relevant_pages theo số trang trong PDF (1-based). Câu 'insufficient' có chủ đề gần nhưng không có trong tài liệu.",
+  "questions": [
+    {
+      "id": "q01",
+      "type": "single",
+      "question": "Khi nhận một câu lệnh SQL, PostgreSQL thực hiện những giai đoạn nào?",
+      "reference_answer": "Bốn giai đoạn: phân tích cú pháp (parser), viết lại (rewriter), lập kế hoạch (planner) và thực thi (executor).",
+      "relevant_pages": [
+        2
+      ],
+      "expect_fallback": false
+    },
+    {
+      "id": "q02",
+      "type": "single",
+      "question": "Với phép JOIN, planner chọn giữa những thuật toán nào và mỗi thuật toán phù hợp khi nào?",
+      "reference_answer": "Ba thuật toán: Nested Loop (một bên rất nhỏ, bên kia có chỉ mục), Hash Join (tập dữ liệu lớn chưa sắp xếp), Merge Join (hai bên đã sắp xếp theo khóa nối).",
+      "relevant_pages": [
+        2
+      ],
+      "expect_fallback": false
+    },
+    {
+      "id": "q03",
+      "type": "single",
+      "question": "work_mem mặc định là bao nhiêu và dùng cho thao tác nào?",
+      "reference_answer": "Mặc định 4MB; là bộ nhớ cho mỗi thao tác sắp xếp hoặc băm bên trong một truy vấn.",
+      "relevant_pages": [
+        5
+      ],
+      "expect_fallback": false
+    },
+    {
+      "id": "q04",
+      "type": "single",
+      "question": "maintenance_work_mem mặc định là bao nhiêu và dùng cho tác vụ nào?",
+      "reference_answer": "Mặc định 64MB; dùng cho các tác vụ bảo trì như VACUUM và CREATE INDEX.",
+      "relevant_pages": [
+        5
+      ],
+      "expect_fallback": false
+    },
+    {
+      "id": "q05",
+      "type": "single",
+      "question": "PgBouncer có những chế độ pooling nào?",
+      "reference_answer": "Ba chế độ: session pooling, transaction pooling và statement pooling.",
+      "relevant_pages": [
+        5
+      ],
+      "expect_fallback": false
+    },
+    {
+      "id": "q06",
+      "type": "single",
+      "question": "Với cấu hình mặc định, bảng 10 triệu dòng chỉ được autovacuum dọn khi có khoảng bao nhiêu dòng chết?",
+      "reference_answer": "Khoảng 2.000.050 dòng chết (ngưỡng = 50 + 0,2 × số dòng của bảng).",
+      "relevant_pages": [
+        6
+      ],
+      "expect_fallback": false
+    },
+    {
+      "id": "q07",
+      "type": "single",
+      "question": "View pg_stat_activity dùng để làm gì?",
+      "reference_answer": "Cho biết các truy vấn đang chạy và các phiên 'idle in transaction'.",
+      "relevant_pages": [
+        9
+      ],
+      "expect_fallback": false
+    },
+    {
+      "id": "q08",
+      "type": "single",
+      "question": "Chỉ mục B-tree phù hợp với những loại truy vấn nào?",
+      "reference_answer": "Phù hợp cho các phép so sánh =, <, >, BETWEEN và cho ORDER BY.",
+      "relevant_pages": [
+        3
+      ],
+      "expect_fallback": false
+    },
+    {
+      "id": "q09",
+      "type": "single",
+      "question": "Vì sao không nên đặt work_mem quá cao trên toàn hệ thống?",
+      "reference_answer": "Một truy vấn có thể dùng work_mem nhiều lần và mỗi kết nối đều có thể làm vậy, nên tổng bộ nhớ tiềm năng xấp xỉ max_connections × work_mem × số thao tác.",
+      "relevant_pages": [
+        5
+      ],
+      "expect_fallback": false
+    },
+    {
+      "id": "q10",
+      "type": "multi",
+      "question": "MVCC là gì và vì sao nó dẫn đến hiện tượng phình bảng?",
+      "reference_answer": "MVCC: thao tác đọc không chặn thao tác ghi và ngược lại. Mỗi UPDATE tạo phiên bản dòng mới, bản cũ thành dòng chết; nếu không được dọn thì bảng và chỉ mục phình to và truy vấn chậm dần.",
+      "relevant_pages": [
+        6
+      ],
+      "expect_fallback": false
+    },
+    {
+      "id": "q11",
+      "type": "multi",
+      "question": "Trong tình huống bảng orders 48 triệu dòng bị chậm, nguyên nhân là gì, nhóm khắc phục thế nào và đổi lại phải trả giá gì?",
+      "reference_answer": "Nguyên nhân: Seq Scan toàn bộ bảng. Khắc phục: CREATE INDEX CONCURRENTLY ON orders (customer_id, created_at DESC); p95 giảm từ 2,8 giây còn 12 mili giây. Đổi lại INSERT chậm đi khoảng 4%, chỉ mục nặng ~1,4GB và tạo mất ~6 phút.",
+      "relevant_pages": [
+        9
+      ],
+      "expect_fallback": false
+    },
+    {
+      "id": "q12",
+      "type": "multi",
+      "question": "Tài liệu đề cập những phương pháp replication và sao lưu nào?",
+      "reference_answer": "Replication: streaming replication (nhân bản vật lý, mặc định bất đồng bộ), nhân bản đồng bộ, logical replication, replication slot. Sao lưu: pg_dump (logic) và pg_basebackup kết hợp WAL archiving (PITR).",
+      "relevant_pages": [
+        8
+      ],
+      "expect_fallback": false
+    },
+    {
+      "id": "q13",
+      "type": "multi",
+      "question": "Những lỗi truy vấn thường gặp nào được nêu ở chương 3?",
+      "reference_answer": "Bảy lỗi: dùng hàm trên cột được lọc; SELECT * khi chỉ cần vài cột; OFFSET lớn; vấn đề N+1; tìm kiếm LIKE '%từ khóa%'; thống kê lỗi thời; transaction mở quá lâu.",
+      "relevant_pages": [
+        4
+      ],
+      "expect_fallback": false
+    },
+    {
+      "id": "q14",
+      "type": "single",
+      "question": "Phân vùng bảng khai báo có những kiểu phân vùng nào?",
+      "reference_answer": "Ba kiểu: theo khoảng (range), theo danh sách (list) và theo băm (hash).",
+      "relevant_pages": [
+        7
+      ],
+      "expect_fallback": false
+    },
+    {
+      "id": "q15",
+      "type": "multi",
+      "question": "Những yếu tố nào có thể ngăn VACUUM/autovacuum dọn dòng chết?",
+      "reference_answer": "Transaction chạy quá lâu hoặc ở trạng thái 'idle in transaction', và replication slot bị bỏ quên; ngoài ra hot_standby_feedback có thể làm máy chủ chính giữ dòng chết lâu hơn.",
+      "relevant_pages": [
+        4,
+        6,
+        8
+      ],
+      "expect_fallback": false
+    },
+    {
+      "id": "q16",
+      "type": "insufficient",
+      "question": "pg_upgrade dùng để làm gì?",
+      "reference_answer": "Tài liệu không đề cập pg_upgrade.",
+      "relevant_pages": [],
+      "expect_fallback": true
+    },
+    {
+      "id": "q17",
+      "type": "insufficient",
+      "question": "Cách triển khai sharding trong PostgreSQL?",
+      "reference_answer": "Tài liệu không đề cập sharding (chỉ nói về phân vùng bảng trên một máy chủ).",
+      "relevant_pages": [],
+      "expect_fallback": true
+    },
+    {
+      "id": "q18",
+      "type": "insufficient",
+      "question": "So sánh hiệu năng PostgreSQL với MySQL?",
+      "reference_answer": "Tài liệu không đề cập MySQL.",
+      "relevant_pages": [],
+      "expect_fallback": true
+    },
+    {
+      "id": "q19",
+      "type": "unrelated",
+      "question": "Hướng dẫn nấu phở bò.",
+      "reference_answer": "Không liên quan đến tài liệu.",
+      "relevant_pages": [],
+      "expect_fallback": true
+    },
+    {
+      "id": "q20",
+      "type": "unrelated",
+      "question": "Ai vô địch World Cup gần nhất?",
+      "reference_answer": "Không liên quan đến tài liệu.",
+      "relevant_pages": [],
+      "expect_fallback": true
+    }
+  ]
+}
