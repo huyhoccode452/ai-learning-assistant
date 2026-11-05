@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -29,8 +30,11 @@ class Settings(BaseSettings):
     gemini_llm_model: str | None = None
     gemini_embedding_model: str | None = None
     embedding_dim: int | None = Field(default=None, gt=0)
-    # Retries per API call on 429 / transient 5xx (0 = never retry).
+    # Retries per API call on 429 / transient 5xx (0 = never retry). Used for embeddings AND the LLM.
     embed_max_retries: int = Field(default=5, ge=0, le=10)
+    # How much the LLM "thinks" before answering. None = the model's own default.
+    # Lower = faster and cheaper (measured with scripts/bench_llm.py, see docs/known_issues.md).
+    llm_thinking_level: Literal["minimal", "low", "medium", "high"] | None = None
 
     # Qdrant
     qdrant_url: str = "http://localhost:6333"

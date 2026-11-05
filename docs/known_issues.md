@@ -3,7 +3,7 @@
 Issues we are aware of and have deliberately not fixed yet. Each entry says what we
 verified, what we did not, and when to revisit. Update the status when one is resolved.
 
-Last updated after `app/embeddings.py` and `app/vectorstore.py` (127 tests + 3 integration tests).
+Last updated after `app/prompts.py` and `app/rag.py` (192 tests + 3 integration tests).
 
 | ID | Area | Issue | Status |
 |----|------|-------|--------|
@@ -23,6 +23,11 @@ Last updated after `app/embeddings.py` and `app/vectorstore.py` (127 tests + 3 i
 | KI-14 | retrieval | Cover/TOC chunks are retrieved as noise | Open, revisit with evaluation data |
 | KI-15 | vectorstore | `list_documents` makes one extra request per document | Open |
 | KI-16 | embeddings | Token-limit pre-check rests on an assumption for short texts | Open |
+| KI-17 | rag | `SCORE_THRESHOLD` is provisional; related-but-absent queries overlap the answerable range | Open, re-tune with the evaluation set |
+| KI-18 | llm | Free-tier LLM: daily quota, 503s, slow tail; `timeout_s` is not a hard total limit | Open |
+| KI-19 | rag | Prompt-injection defence lowers the risk but is not a guarantee | Open, by design |
+| KI-20 | rag | Citation checking proves the number exists, not that the chunk supports the sentence | Open |
+| KI-21 | rag | Retry loop duplicated in `rag.py`; embedder maps a bad API key to `request_rejected` | Open |
 
 ## KI-01: Repeated headers/footers are indexed
 
@@ -145,3 +150,67 @@ filename. Fine for tens of documents; store the filename in SQLite (`db.py`) if 
 2048 tokens. Texts up to 1000 characters are not counted, which assumes at least half a character
 per token (at most 2000 tokens). Typical Vietnamese text is about 4 characters per token (measured on
 one repeated phrase only); text full of emoji or rare scripts was not tested.
+
+(KI-14 addendum, measured with `scripts/try_rag.py`, threshold 0.65: the table-of-contents chunk
+scored 0.652 and 0.659 for two answerable questions, so it passed the threshold and was sent to the
+LLM as uncited noise. It did no visible harm in 10 questions.)
+
+## KI-17: SCORE_THRESHOLD is provisional and the score ranges overlap
+
+- **Measured** (cosine, top-1 per query, `gemini-embedding-001`, 768 dims, 29-chunk sample):
+
+  | category | n | min | median | max |
+  |---|---|---|---|---|
+  | answerable | 11 | 0.7515 | 0.7896 | 0.8221 |
+  | unrelated (cooking, football) | 2 | 0.4835 | 0.5063 | 0.5292 |
+  | related-but-absent (MongoDB sharding / `pg_upgrade` / PostgreSQL sharding) | 3 | 0.5663 | 0.6493 | 0.7038 |
+
+- Unrelated queries are cleanly separated from answerable ones (gap 0.22). Related-but-absent queries
+  are **not**: "Sharding trong PostgreSQL" scored 0.7038, only 0.048 below the weakest answerable query,
+  and ranks 2-5 of answerable queries (0.65-0.73) sit inside the same band. A single hard threshold
+  cannot separate them; with 0.65, `pg_upgrade` fell back by a margin of 0.0007 and PostgreSQL sharding
+  went to the LLM, which correctly said the document does not cover it. That is the second safety net.
+- The sample is one 9-page document and the groups have 2-3 queries each. **Do not trust 0.65 yet.**
+  Re-tune with the evaluation set. Idea to test then: two numbers, a *gate* on the best score
+  (answer at all?) and a lower *include* cut-off for which chunks go into the prompt.
+
+## KI-18: Free-tier LLM behaviour
+
+- **Daily quota:** `gemini-3.5-flash` hit `GenerateRequestsPerDayPerProjectPerModel-FreeTier` after about 45
+  calls in one day (429 with retryDelay ~24000 s). The pipeline fails fast with `RATE_LIMITED` instead of
+  sleeping for hours. Budget the evaluation run (20+ questions, plus any LLM judge) against this.
+- **Measured latency** (5 real chunks, ~1440 prompt tokens, single question, 2 benchmark rounds with
+  retries disabled, `scripts/bench_llm.py`): `gemini-3.5-flash` default thinking median 4.1 s over 9 runs
+  (3.0-19.0 s, ~240-430 thinking tokens); `minimal` median 1.7 s over 8 runs (1.1-5.6 s, no thinking
+  tokens); `gemini-3.1-flash-lite` `minimal` median 1.6 s over 7 runs but 2 of 7 took 13-18 s; its default
+  setting failed with 503/504 in 5 of 9 calls and once took 48.8 s. Server load, not prompt size, explains
+  the tail (answers had 40-60 output tokens).
+- **Timeout is not a hard limit:** the SDK passes `timeout` to httpx as a number (applied per phase, not to
+  the whole call) and sends `X-Server-Timeout`. In `try_rag.py` one question took 87 s: a first attempt of
+  roughly 84 s ended in 504 DEADLINE_EXCEEDED, then the retry succeeded in ~1.3 s. Cause not investigated
+  further. A real wall-clock cap would need a thread/async wrapper.
+- 504 is retried like 429/5xx by design (same policy as embeddings); with 5 retries the worst case is
+  minutes. Consider `EMBED_MAX_RETRIES` lower for interactive use or a separate LLM retry setting.
+
+## KI-19: Prompt injection
+
+Retrieved text is wrapped in markers with a random per-request token and the system prompt says to treat
+it as data (tested: a chunk cannot forge the end marker). This is not a guarantee: a model can still be
+swayed by text inside the data block, and a chunk can imitate a chunk header such as "[2] (x.pdf, trang 1)"
+to confuse numbering. **Not tested against the real model** with a malicious document; only the prompt
+construction is tested.
+
+## KI-20: Citation checking is shallow
+
+`resolve_citations` removes numbers that do not exist and flags which sources were cited. It does not check
+that the cited chunk really supports the sentence, and a regex cannot tell `[1]` as a citation from `[1]` in
+code the model quotes (numbers of 4+ digits, such as years, are ignored). An answer with no citation at all
+is returned as it is (warning in the log). `used_fallback` only means "the LLM was not called": the LLM may
+still answer "the documents do not cover this" for chunks that passed the threshold.
+
+## KI-21: Duplicated retry loop, bad-key mapping
+
+- `GeminiLLM._call_with_retry` repeats the structure of `GeminiEmbedder._call_with_retry` (and imports the
+  private `_retry_delay_from`). Extract a shared helper if a third caller appears.
+- **Measured:** a wrong API key returns HTTP 400 INVALID_ARGUMENT "API key not valid", not 401/403.
+  `GeminiLLM` maps it to `auth_error` (message check); `GeminiEmbedder` still reports `request_rejected`.

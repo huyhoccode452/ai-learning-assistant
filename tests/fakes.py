@@ -89,3 +89,79 @@ class FakeModels:
 class FakeGenaiClient:
     def __init__(self, models: FakeModels) -> None:
         self.models = models
+
+
+# ---------------------------------------------------------------------- RAG fakes
+
+
+class FakeStore:
+    """In-memory stand-in for QdrantStore.search: honors top_k, score_threshold and doc_ids,
+    and records every call so tests can assert what the pipeline passed through."""
+
+    def __init__(self, chunks: Sequence[Any] = ()) -> None:
+        self.chunks = list(chunks)
+        self.search_calls: list[dict[str, Any]] = []
+
+    def search(self, query_vector: Sequence[float], top_k: int, score_threshold: float | None = None,
+               doc_ids: Sequence[str] | None = None) -> list[Any]:
+        self.search_calls.append({
+            "top_k": top_k,
+            "score_threshold": score_threshold,
+            "doc_ids": None if doc_ids is None else list(doc_ids),
+        })
+        if doc_ids is not None and len(doc_ids) == 0:
+            return []
+        hits = [c for c in self.chunks
+                if (doc_ids is None or c.doc_id in doc_ids)
+                and (score_threshold is None or c.score >= score_threshold)]
+        return sorted(hits, key=lambda c: -c.score)[:top_k]
+
+
+class FakeLLM:
+    """Implements app.rag.LLM. `reply` is the text to return, or an Exception to raise."""
+
+    def __init__(self, reply: "str | Exception" = "ok [1]", **result_fields: Any) -> None:
+        self.reply = reply
+        self.result_fields = result_fields
+        self.calls: list[dict[str, str]] = []
+
+    def generate(self, system_instruction: str, prompt: str) -> Any:
+        from app.rag import LLMResult
+
+        self.calls.append({"system": system_instruction, "prompt": prompt})
+        if isinstance(self.reply, Exception):
+            raise self.reply
+        return LLMResult(text=self.reply, **self.result_fields)
+
+
+class FakeGenerateModels:
+    """Stands in for `genai.Client().models` for generate_content. `script` is consumed one item
+    per call: an Exception is raised, anything else is returned as the response."""
+
+    def __init__(self, script: list[Any] | None = None) -> None:
+        self.script = list(script or [])
+        self.calls: list[dict[str, Any]] = []
+
+    def generate_content(self, *, model: str, contents: str, config: Any) -> Any:
+        self.calls.append({"model": model, "contents": contents, "config": config})
+        outcome = self.script.pop(0) if self.script else make_response("ok")
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+def make_response(text: str | None = "ok", *, finish: str | None = "STOP", block_reason: str | None = None,
+                  candidates: bool = True, usage: tuple[int, int, int | None] = (10, 5, None)) -> SimpleNamespace:
+    """A minimal GenerateContentResponse look-alike (only the attributes GeminiLLM reads)."""
+    from google.genai import types
+
+    reason = types.FinishReason[finish] if finish else None
+    prompt_feedback = SimpleNamespace(block_reason=types.BlockedReason[block_reason]) if block_reason else None
+    return SimpleNamespace(
+        text=text,
+        candidates=[SimpleNamespace(finish_reason=reason)] if candidates else None,
+        prompt_feedback=prompt_feedback,
+        usage_metadata=SimpleNamespace(
+            prompt_token_count=usage[0], candidates_token_count=usage[1], thoughts_token_count=usage[2]
+        ),
+    )
