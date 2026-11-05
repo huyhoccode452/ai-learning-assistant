@@ -356,3 +356,12 @@ def test_list_documents_reports_filenames_and_exact_chunk_counts(ready) -> None:
     ]
     index(ready, DOC_A, TEXTS_A[:2], filename="autovacuum.pdf")  # re-index shrinks the count
     assert [d.chunk_count for d in ready.list_documents()] == [2, 2]
+
+
+def test_is_reachable_is_true_for_a_live_server_and_false_for_a_dead_one(store: QdrantStore) -> None:
+    assert store.is_reachable() is True
+    dead = QdrantStore(make_settings(embedding_dim=DIM, qdrant_url="http://127.0.0.1:9"), collection="unused")
+    try:
+        assert dead.is_reachable() is False  # must return False, never raise
+    finally:
+        dead.close()

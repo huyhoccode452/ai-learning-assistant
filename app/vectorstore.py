@@ -91,6 +91,15 @@ class QdrantStore:
     def close(self) -> None:
         self._client.close()
 
+    def is_reachable(self) -> bool:
+        """True if the Qdrant server answers. Never raises (used by the /health endpoint)."""
+        try:
+            self._client.get_collections()
+        except (ResponseHandlingException, UnexpectedResponse) as exc:
+            logger.warning("Qdrant is not reachable at %s: %s", self._url, type(exc).__name__)
+            return False
+        return True
+
     # ------------------------------------------------------------------ errors
 
     @contextmanager

@@ -50,8 +50,10 @@ class Settings(BaseSettings):
     # Uploads / storage
     max_upload_mb: int = Field(default=20, gt=0)
     sqlite_path: Path = Path("data/app.sqlite3")
+    # Original files are stored here under generated names (never the user's file name).
+    upload_dir: Path = Path("data/uploads")
 
-    @field_validator("sqlite_path")
+    @field_validator("sqlite_path", "upload_dir")
     @classmethod
     def _resolve_relative_to_root(cls, value: Path) -> Path:
         return value if value.is_absolute() else PROJECT_ROOT / value

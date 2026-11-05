@@ -165,3 +165,51 @@ def make_response(text: str | None = "ok", *, finish: str | None = "STOP", block
             prompt_token_count=usage[0], candidates_token_count=usage[1], thoughts_token_count=usage[2]
         ),
     )
+
+
+class FakeVectorStore(FakeStore):
+    """In-memory stand-in for the whole QdrantStore surface used by app/main.py.
+
+    Indexed chunks become searchable with a constant `score`, so chat tests can exercise the real
+    RagPipeline threshold logic. `fail_index` / `fail_delete` make the next calls raise.
+    """
+
+    def __init__(self, *, score: float = 0.9, reachable: bool = True) -> None:
+        super().__init__([])
+        self.score = score
+        self.reachable = reachable
+        self.indexed: dict[str, list[Any]] = {}
+        self.index_calls: list[str] = []
+        self.ensure_calls = 0
+        self.fail_index: Exception | None = None
+        self.fail_delete: Exception | None = None
+
+    def _rebuild(self) -> None:
+        from app.vectorstore import RetrievedChunk
+
+        self.chunks = [
+            RetrievedChunk(self.score, c.doc_id, c.filename, c.page, c.chunk_index, c.text)
+            for chunks in self.indexed.values() for c in chunks
+        ]
+
+    def is_reachable(self) -> bool:
+        return self.reachable
+
+    def ensure_collection(self) -> bool:
+        self.ensure_calls += 1
+        return False
+
+    def index_document(self, doc_id: str, chunks: Sequence[Any], vectors: Sequence[Sequence[float]]) -> int:
+        self.index_calls.append(doc_id)
+        if self.fail_index:
+            raise self.fail_index
+        self.indexed[doc_id] = list(chunks)
+        self._rebuild()
+        return len(chunks)
+
+    def delete_document(self, doc_id: str) -> int:
+        if self.fail_delete:
+            raise self.fail_delete
+        removed = len(self.indexed.pop(doc_id, []))
+        self._rebuild()
+        return removed

@@ -3,7 +3,7 @@
 Issues we are aware of and have deliberately not fixed yet. Each entry says what we
 verified, what we did not, and when to revisit. Update the status when one is resolved.
 
-Last updated after `app/prompts.py` and `app/rag.py` (192 tests + 3 integration tests).
+Last updated after `app/db.py` and `app/main.py` (285 tests + 3 integration tests).
 
 | ID | Area | Issue | Status |
 |----|------|-------|--------|
@@ -15,10 +15,10 @@ Last updated after `app/prompts.py` and `app/rag.py` (192 tests + 3 integration 
 | KI-06 | ingestion | DOCX: no page numbers, some content not read | Open |
 | KI-07 | ingestion | Line-end hyphen re-joining can merge real compounds | Open |
 | KI-08 | vectorstore | Re-indexing can leave stale chunks | Resolved in `QdrantStore.index_document` |
-| KI-09 | api | Upload size limit is checked after the file is in memory | Must handle in `main.py` |
+| KI-09 | api | Upload size limit is checked after the file is in memory | Resolved in `main.py` (middleware + bounded read) |
 | KI-10 | tests | Some tests depend on a system font | Open |
 | KI-11 | dependencies | `langchain-text-splitters` footprint and a known upstream bug | Decided: keep |
-| KI-12 | embeddings | Free-tier throughput is ~100 texts per 70-85 s; embedding blocks | Open, handle in `main.py` |
+| KI-12 | embeddings | Free-tier throughput is ~100 texts per 70-85 s; embedding blocks | Handled in `main.py` (background job); throughput limit remains |
 | KI-13 | vectorstore | `index_document` is delete-then-upsert, not atomic | Open, by design |
 | KI-14 | retrieval | Cover/TOC chunks are retrieved as noise | Open, revisit with evaluation data |
 | KI-15 | vectorstore | `list_documents` makes one extra request per document | Open |
@@ -28,6 +28,10 @@ Last updated after `app/prompts.py` and `app/rag.py` (192 tests + 3 integration 
 | KI-19 | rag | Prompt-injection defence lowers the risk but is not a guarantee | Open, by design |
 | KI-20 | rag | Citation checking proves the number exists, not that the chunk supports the sentence | Open |
 | KI-21 | rag | Retry loop duplicated in `rag.py`; embedder maps a bad API key to `request_rejected` | Open |
+| KI-22 | api | Indexing runs in a `BackgroundTask`: lost on restart, no queue, one process | Open, by design |
+| KI-23 | api | No authentication or per-user data separation | Open, by design |
+| KI-24 | api | Thread-pool starvation, blocked chat during long LLM calls | Open |
+| KI-25 | api | Small consistency gaps (ready but vectors missing, same bytes with another name) | Open |
 
 ## KI-01: Repeated headers/footers are indexed
 
@@ -91,7 +95,16 @@ extra old ones stay in Qdrant.
 **Rule:** delete all points with that `doc_id` before upserting a document. Changing the
 embedding model or dimension already requires recreating the collection (see `CLAUDE.md`).
 
-## KI-09: Upload size is checked late (action for `main.py`)
+## KI-09: Upload size is checked late (resolved in `main.py`)
+
+**Resolved**, with a correction to the original wording: reading the upload in pieces inside the endpoint is
+not enough, because Starlette's multipart parser spools the whole upload to a temporary file BEFORE the
+endpoint runs. The real limit therefore lives in `BodySizeLimitMiddleware` (refuses a too-large
+`Content-Length` without reading anything; counts bytes of chunked bodies and aborts past the limit),
+and `_read_bounded` is the second line. Measured on the real server: a 30 MB upload against the 20 MB
+limit got `413` in 0.02 s with 0 bytes sent. Bodies of all other endpoints are capped at 1 MB. Not covered:
+the worst case of a chunked body is `limit + one network read` of bytes spooled before the abort.
+Original problem, kept for context:
 
 `validate_upload` compares `len(data)` with `MAX_UPLOAD_MB`, so the bytes are already in memory.
 The API layer must also cap how much it reads from the request.
@@ -111,7 +124,12 @@ Linux or macOS.
   `test_splitter_does_not_leak_regex_source_into_chunks` guards this. **Re-run the tests after
   any upgrade of this package.**
 
-## KI-12: Free-tier embedding throughput
+## KI-12: Free-tier embedding throughput (handled in `main.py`)
+
+`POST /documents` now returns `202` immediately and a background job embeds and indexes; the client polls
+`GET /documents/{doc_id}` (`processing` -> `ready` | `failed`). The throughput limit itself is unchanged: the
+29-chunk sample took about 3 s on a fresh quota, a 500-chunk document would still take minutes. Measured:
+the `202` came back in 0.43 s.
 
 - **Measured:** the free tier limits `embed_content` to roughly 100 *texts* per minute (every text in
   a batch counts, not every call). Three consecutive batches of 100 texts took 85 s, 70 s and 78 s,
@@ -214,3 +232,40 @@ still answer "the documents do not cover this" for chunks that passed the thresh
   private `_retry_delay_from`). Extract a shared helper if a third caller appears.
 - **Measured:** a wrong API key returns HTTP 400 INVALID_ARGUMENT "API key not valid", not 401/403.
   `GeminiLLM` maps it to `auth_error` (message check); `GeminiEmbedder` still reports `request_rejected`.
+
+## KI-22: Background indexing is not durable
+
+- `BackgroundTasks` run inside the server process. If it stops, the work is lost. On the next start every
+  `processing` row is marked `failed` with code `interrupted` (verified on the real server) and the user
+  must upload the file again; re-uploading is safe (the old vectors are replaced).
+- No queue, no concurrency limit, no progress percentage: only `processing`. Several large uploads at once
+  all compete for the same embedding quota, and each job occupies one worker thread for its whole duration.
+- Single process only: `claim_document` is atomic across threads and processes (SQLite `BEGIN IMMEDIATE`), but
+  the uploaded file bytes and chunks are handed to the job in memory, so a second process cannot continue it.
+- A document that was `failed` after a partial upsert keeps its partial vectors until it is uploaded again or
+  deleted. Chat never reads them because it only searches `ready` documents.
+
+## KI-23: No authentication
+
+Anyone who can reach the API can upload, list, delete and ask. All documents are shared by all callers. CORS
+allows only the local Streamlit origin, but CORS is a browser rule, not access control. Fine for a local demo,
+not for a deployment.
+
+## KI-24: Thread pool and long requests
+
+All endpoints are plain `def` (run in AnyIO's pool of 40 threads by default). A chat call holds a thread for
+the whole LLM call, including retries (up to minutes, KI-18), and every running indexing job holds one too.
+Enough slow requests at once can use up the pool, and then even `/health` waits. Not reproduced, from reading
+the design. Mitigations if needed: lower retries for chat, a semaphore for indexing jobs.
+
+## KI-25: Small consistency gaps
+
+- If a document is `ready` in SQLite but its vectors were removed from Qdrant by hand (volume wiped), a re-upload
+  returns `ready` and does not re-index. Delete the document, then upload again.
+- Uploading the same bytes under a different name returns the original record and keeps the original file name.
+- The multi-step delete (vectors, then row, then file) is not atomic. Vectors go first on purpose: if Qdrant
+  is down nothing changed and the request can be retried. A failure to remove the stored file only logs a warning.
+- `/docs` (Swagger UI) returns HTML from the server, but its scripts and styles load from a CDN, so a full
+  render needs internet. Only the HTML and `/openapi.json` were checked, not a browser render.
+- A request body that is not valid UTF-8 (some Windows shells send cp1252 for Vietnamese text via curl) gets
+  `400 bad_request`; found on the real server and covered by a test.
