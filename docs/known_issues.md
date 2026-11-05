@@ -3,7 +3,7 @@
 Issues we are aware of and have deliberately not fixed yet. Each entry says what we
 verified, what we did not, and when to revisit. Update the status when one is resolved.
 
-Last updated after conversation history (1200 tests + 3 integration tests).
+Last updated after conversation history. Last `pytest -q` run: 1172 passed, 29 skipped (the Qdrant-dependent tests, Qdrant was not running), 3 deselected (integration tests that call the real Gemini API).
 
 | ID | Area | Issue | Status |
 |----|------|-------|--------|

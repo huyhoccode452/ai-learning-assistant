@@ -88,7 +88,7 @@ flowchart LR
 
 ## Getting started
 
-Requirements: Python 3.12 (3.11 should work), Docker (for Qdrant), and a free Gemini API key from
+Requirements: Python 3.12 (the version this project was developed and tested on; 3.11 has not been tested), Docker (for Qdrant), and a free Gemini API key from
 [Google AI Studio](https://aistudio.google.com/apikey).
 
 ```powershell
@@ -131,11 +131,12 @@ Try it with the sample document `data/samples/postgresql_performance_guide_vi.pd
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/health` | Liveness and dependency status |
-| POST | `/documents` | Upload a file; returns `202` and indexes in the background |
+| POST | `/documents` | Upload a file; returns `202` and indexes in the background (`200` if the same file is already `ready`) |
 | GET | `/documents`, `/documents/{doc_id}` | List documents / poll status (`processing` → `ready` or `failed`) |
 | DELETE | `/documents/{doc_id}` | Delete vectors, metadata and the stored file |
 | POST | `/chat` | Ask a question; answer + sources, saved to history |
-| GET / DELETE | `/conversations`, `/conversations/{id}` | List, open (no LLM call) or delete saved conversations |
+| GET | `/conversations`, `/conversations/{id}` | List saved conversations / open one (no LLM call) |
+| DELETE | `/conversations/{id}` | Delete a saved conversation |
 | POST | `/documents/{doc_id}/summary` | Short or detailed summary (cached) |
 | POST | `/documents/{doc_id}/quiz` | Multiple-choice quiz with answer key, explanations and source quotes (cached) |
 
