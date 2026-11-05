@@ -692,6 +692,10 @@ async function openConversation(id) {
       }, true));
     }
     state.conversationId = data.id;
+    // Same as the Streamlit app: scope the next question to this conversation's documents that still exist and are ready.
+    const readyIds = new Set(readyDocs().map((d) => d.doc_id));
+    state.checked = new Set((data.doc_ids || []).filter((docId) => readyIds.has(docId)));
+    renderScope();
     switchTab("chat");
     closeDrawer();
     renderHistory();
@@ -735,8 +739,7 @@ async function makeSummary(refresh) {
   try {
     const { data } = await api.summary(docId, style, refresh);
     clear(out);
-    if (data.warning) out.appendChild(box(data.warning, "warning"));
-    if (data.truncated) out.appendChild(box("Tài liệu dài hơn giới hạn nên chỉ phần đầu được tóm tắt.", "warning"));
+    if (data.truncated && data.warning) out.appendChild(box(data.warning, "warning"));
     out.appendChild(el("div", { className: "msg" }, [el("div", { className: "text", text: data.summary })]));
     out.appendChild(el("p", { className: "caption", text: "Dùng " + data.num_chunks_used + "/" + data.num_chunks_total + " đoạn · " + costText(data.llm_calls, data.cached, data.latency_ms) }));
   } catch (err) {
@@ -803,6 +806,9 @@ function renderQuiz(out, quiz) {
   const dropped = Object.entries(quiz.dropped || {}).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
   if (dropped.length) {
     out.appendChild(el("p", { className: "caption", text: "Các câu đã bị loại: " + dropped.map(([r, n]) => n + " câu " + (DROP_REASONS[r] || r)).join("; ") }));
+  }
+  for (const d of (quiz.verifier_decisions || []).filter((x) => x.kept === false)) {
+    out.appendChild(el("p", { className: "caption", text: "Bị loại: " + d.question + " — " + d.reason }));
   }
   if (!questions.length) return;
   const form = el("form", { attrs: { novalidate: "novalidate" } });
